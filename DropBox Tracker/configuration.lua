@@ -228,7 +228,7 @@ local function ConfigurationWindow(configuration)
             end
 
             if success then
-                if imgui.Checkbox("Show Name", cateTabl.showName) then
+                if imgui.Checkbox("Show Text", cateTabl.showName) then
                     cateTabl.showName = not cateTabl.showName
                     this.changed = true
                 end
@@ -237,9 +237,14 @@ local function ConfigurationWindow(configuration)
                     this.changed = true
                 end
 
+                if imgui.Checkbox("Show Image", cateTabl.showImage) then
+                    cateTabl.showImage = not cateTabl.showImage
+                    this.changed = true
+                end
+
                 if cateTabl.showBox then
                     imgui.PushItemWidth(140)
-                    success, cateTabl.borderSize = imgui.SliderInt("Border Thickness", cateTabl.borderSize, 1, 20)
+                    success, cateTabl.borderSize = imgui.SliderInt("Box Border Thickness", cateTabl.borderSize, 0, 20)
                     if success then
                         this.changed = true
                     end
@@ -287,6 +292,14 @@ local function ConfigurationWindow(configuration)
                             cateTabl.onlyShowIfInvNotMaxStack = not cateTabl.onlyShowIfInvNotMaxStack
                             this.changed = true
                         end
+                        if imgui.Checkbox("Show [MAX] Indicator When Inventory Max Stack", cateTabl.showMaxStackIndicator) then
+                            cateTabl.showMaxStackIndicator = not cateTabl.showMaxStackIndicator
+                            this.changed = true
+                        end
+                        if imgui.Checkbox("Show Inventory Count [N/Max]", cateTabl.showInventoryCount) then
+                            cateTabl.showInventoryCount = not cateTabl.showInventoryCount
+                            this.changed = true
+                        end
                     end
                     if Additional.onlyShowWhenOneOrMoreInInv then
                         if imgui.Checkbox("Only Show When Inventory Contains One or More", cateTabl.onlyShowWhenOneOrMoreInInv) then
@@ -317,6 +330,58 @@ local function ConfigurationWindow(configuration)
                     cateTabl.customBorderColor = PresentColorEditor("Border Color", 0xFFFF6900, cateTabl.customBorderColor)
                 end
 
+                -- Image color override, independent of the box border color.
+                if cateTabl.useCustomImageColor == nil then cateTabl.useCustomImageColor = false end
+                if cateTabl.customImageColor  == nil then cateTabl.customImageColor  = 0xFFFFFFFF end
+                if imgui.Checkbox("Custom Image Color", cateTabl.useCustomImageColor) then
+                    cateTabl.useCustomImageColor = not cateTabl.useCustomImageColor
+                    this.changed = true
+                end
+                if imgui.IsItemHovered() then
+                    imgui.SetTooltip("Tints the icon image with a color of your choice,\ninstead of matching the box/border color.")
+                end
+                if cateTabl.useCustomImageColor then
+                    cateTabl.customImageColor = PresentColorEditor("Image Color", 0xFFFFFFFF, cateTabl.customImageColor)
+                end
+
+                -- Per-category override of the tracker's compactWindowScale.
+                if cateTabl.useCustomCompactScale == nil then cateTabl.useCustomCompactScale = false end
+                if cateTabl.customCompactScale    == nil then cateTabl.customCompactScale    = 1.0 end
+                if imgui.Checkbox("Custom Compact Scale", cateTabl.useCustomCompactScale) then
+                    cateTabl.useCustomCompactScale = not cateTabl.useCustomCompactScale
+                    this.changed = true
+                end
+                if imgui.IsItemHovered() then
+                    imgui.SetTooltip("Overrides the tracker's Compact Window Scale\nfor THIS item type only.")
+                end
+                if cateTabl.useCustomCompactScale then
+                    imgui.PushItemWidth(140)
+                    local _changedSc
+                    _changedSc, cateTabl.customCompactScale = imgui.SliderFloat(
+                        "Compact Scale##" .. tostring(cateTabl),
+                        cateTabl.customCompactScale,
+                        0.5, 3.0,
+                        "%.2fx"
+                    )
+                    imgui.PopItemWidth()
+                    if _changedSc then this.changed = true end
+                end
+
+                -- Compact window outline thickness for this category. 0 hides it.
+                if cateTabl.compactBorderThickness == nil then cateTabl.compactBorderThickness = 1 end
+                imgui.PushItemWidth(140)
+                local _changedBt
+                _changedBt, cateTabl.compactBorderThickness = imgui.SliderInt(
+                    "Compact Border Thickness##" .. tostring(cateTabl),
+                    cateTabl.compactBorderThickness,
+                    0, 10
+                )
+                imgui.PopItemWidth()
+                if _changedBt then this.changed = true end
+                if imgui.IsItemHovered() then
+                    imgui.SetTooltip("Thickness in pixels of the colored outline around this item's compact popup.\n0 = no border. Color comes from this item's box / border / image color settings above.")
+                end
+
                 imgui.TreePop()
             end
 
@@ -332,9 +397,30 @@ local function ConfigurationWindow(configuration)
                 this.changed = true
             end
 
-            if imgui.Checkbox("Ignore meseta", _configuration.ignoreMeseta) then
-                _configuration.ignoreMeseta = not _configuration.ignoreMeseta
+            if imgui.Checkbox("Show [INV FULL] When Inventory Full", _configuration.showInvFullIndicator) then
+                _configuration.showInvFullIndicator = not _configuration.showInvFullIndicator
                 this.changed = true
+            end
+            if imgui.IsItemHovered() then
+                imgui.SetTooltip("Appends [INV FULL] to floor drops when inventory is full.\nSkipped for meseta and for items you already carry\n(would stack or already at max).")
+            end
+
+            if imgui.Checkbox("Show Inventory Slot Count On Items (e.g. [12/30])", _configuration.showInventoryCounter) then
+                _configuration.showInventoryCounter = not _configuration.showInventoryCounter
+                this.changed = true
+            end
+            if imgui.IsItemHovered() then
+                imgui.SetTooltip("Appends [used/max] inventory slot count to every visible floor drop.\nGreen below 80%, yellow approaching full, red at full.")
+            end
+
+            if _configuration.showInvFullIndicator or _configuration.showInventoryCounter then
+                imgui.PushItemWidth(100)
+                success, _configuration.inventoryMaxSize = imgui.InputInt("Inventory Max Slots", _configuration.inventoryMaxSize)
+                imgui.PopItemWidth()
+                if success then
+                    this.changed = true
+                    _configuration.inventoryMaxSize = clampVal(_configuration.inventoryMaxSize, 1, 99)
+                end
             end
 
             imgui.PushItemWidth(100)
@@ -363,7 +449,7 @@ local function ConfigurationWindow(configuration)
                 imgui.PopItemWidth()
                 if success then
                     this.changed = true
-                    _configuration.customScreenResX = clampVal(_configuration.customScreenResX, 1, _configuration.customScreenResX)
+                    _configuration.customScreenResX = clampVal(_configuration.customScreenResX, 1, 99999)
                 end
 
                 if _configuration.customScreenResX ~= lib_helpers.GetResolutionWidth() then
@@ -380,7 +466,7 @@ local function ConfigurationWindow(configuration)
                 imgui.PopItemWidth()
                 if success then
                     this.changed = true
-                    _configuration.customScreenResY = clampVal(_configuration.customScreenResY, 1, _configuration.customScreenResY)
+                    _configuration.customScreenResY = clampVal(_configuration.customScreenResY, 1, 99999)
                 end
 
                 if _configuration.customScreenResY ~= lib_helpers.GetResolutionHeight() then
@@ -569,6 +655,58 @@ local function ConfigurationWindow(configuration)
                         this.changed = true
                     end
 
+                    if imgui.Checkbox("Mark Weapons I Can't Equip With a Red X", _configuration[trkIdx].markUnusableWeapons) then
+                        _configuration[trkIdx].markUnusableWeapons = not _configuration[trkIdx].markUnusableWeapons
+                        this.changed = true
+                    end
+                    if imgui.IsItemHovered() then
+                        imgui.SetTooltip("Reads each weapon's class restrictions from PMT and draws a red X over\nany weapon your current character cannot equip.")
+                    end
+
+                    if imgui.Checkbox("Compact Layout (icon left, text right)", _configuration[trkIdx].compactLayout) then
+                        _configuration[trkIdx].compactLayout = not _configuration[trkIdx].compactLayout
+                        _configuration[trkIdx].changed = true
+                        this.changed = true
+                    end
+                    if imgui.IsItemHovered() then
+                        imgui.SetTooltip("Stacks the item popup horizontally: icon on the left,\nname and stats to the right, inventory count under the icon.")
+                    end
+
+                    if _configuration[trkIdx].compactLayout then
+                        imgui.PushItemWidth(180)
+                        success, _configuration[trkIdx].compactWindowScale = imgui.SliderFloat(
+                            "Compact Window Scale",
+                            _configuration[trkIdx].compactWindowScale,
+                            0.5, 3.0,
+                            "%.2fx"
+                        )
+                        imgui.PopItemWidth()
+                        if success then
+                            _configuration[trkIdx].changed = true
+                            this.changed = true
+                        end
+                        if imgui.IsItemHovered() then
+                            imgui.SetTooltip("Scales the entire compact popup — icon and text together.\n1.0 = base size.")
+                        end
+
+                    end
+
+                    if imgui.TreeNodeEx("Item Labels") then
+                        if imgui.Checkbox("Show Stack Count on Floor Drops (e.g. 5x)", _configuration[trkIdx].showStackCount) then
+                            _configuration[trkIdx].showStackCount = not _configuration[trkIdx].showStackCount
+                            this.changed = true
+                        end
+                        if imgui.Checkbox("Show Distance to Item", _configuration[trkIdx].showDistance) then
+                            _configuration[trkIdx].showDistance = not _configuration[trkIdx].showDistance
+                            this.changed = true
+                        end
+                        if imgui.Checkbox("Show Debug Info (Item Hex)", _configuration[trkIdx].showDebugInfo) then
+                            _configuration[trkIdx].showDebugInfo = not _configuration[trkIdx].showDebugInfo
+                            this.changed = true
+                        end
+                        imgui.TreePop()
+                    end
+
                     if imgui.Checkbox("Show Name Override", _configuration[trkIdx].showNameOverride) then
                         _configuration[trkIdx].showNameOverride = not _configuration[trkIdx].showNameOverride
                         this.changed = true
@@ -648,6 +786,11 @@ local function ConfigurationWindow(configuration)
                         if success then
                             this.changed = true
                         end
+
+                        if imgui.Checkbox("Uptekk Hit%", _configuration.UptekkHit) then
+                            _configuration.UptekkHit = not _configuration.UptekkHit
+                            this.changed = true
+                        end
                         
                         dropPreview("Low Hit Weapons", "LowHitCommonWeapon", trkIdx, AdditionalW)
                         dropPreview("High Hit Weapons", "HighHitCommonWeapon", trkIdx, AdditionalW)
@@ -660,18 +803,6 @@ local function ConfigurationWindow(configuration)
                         dropPreview("Low Techs", "CommonTech", trkIdx)
                         
                         dropPreview("Music Disks", "MusicDisk", trkIdx, {includeMusicSelection = true})
-                        
-                        if not _configuration.ignoreMeseta then
-                            
-                            dropPreview("Meseta", "Meseta", trkIdx)
-
-                            imgui.PushItemWidth(SWidthP)
-                            success, _configuration[trkIdx].Meseta.MinAmount = imgui.DragInt("Meseta Min", _configuration[trkIdx].Meseta.MinAmount, 10, MesetaRange[1], MesetaRange[2])
-                            imgui.PopItemWidth()
-                            if success then
-                                this.changed = true
-                            end
-                        end
 
                         imgui.TreePop()
                     end
@@ -778,7 +909,7 @@ local function ConfigurationWindow(configuration)
                             onlyShowIfInvNotMaxStack = true,
                             onlyShowWhenOneOrMoreInInv = true,
                         }
-                        
+
                         dropPreview("Monogrinders", "Monogrinder", trkIdx, Additional )
                         dropPreview("Digrinders", "Digrinder", trkIdx, Additional )
                         dropPreview("Trigrinders", "Trigrinder", trkIdx, Additional )
@@ -794,7 +925,47 @@ local function ConfigurationWindow(configuration)
                         imgui.TreePop()
                     end
 
+                    if imgui.TreeNodeEx("Meseta") then
+                        if imgui.Checkbox("Ignore Meseta", _configuration.ignoreMeseta) then
+                            _configuration.ignoreMeseta = not _configuration.ignoreMeseta
+                            this.changed = true
+                        end
+                        if imgui.IsItemHovered() then
+                            imgui.SetTooltip("When enabled, meseta drops are not tracked at all.")
+                        end
+
+                        if not _configuration.ignoreMeseta then
+                            dropPreview("Meseta", "Meseta", trkIdx)
+
+                            imgui.PushItemWidth(SWidthP)
+                            success, _configuration[trkIdx].Meseta.MinAmount = imgui.DragInt("Meseta Min", _configuration[trkIdx].Meseta.MinAmount, 10, MesetaRange[1], MesetaRange[2])
+                            imgui.PopItemWidth()
+                            if success then
+                                this.changed = true
+                            end
+                            if imgui.IsItemHovered() then
+                                imgui.SetTooltip("Only show meseta drops at or above this amount.")
+                            end
+                        end
+
+                        imgui.TreePop()
+                    end
+
                     dropPreview("Clairs Deal 5", "ClairesDeal", trkIdx)
+
+                    if imgui.TreeNodeEx("Custom Watch List") then
+                        dropPreview("Custom Watch List", "CustomWatch", trkIdx)
+                        imgui.PushItemWidth(360)
+                        success, _configuration[trkIdx].customWatchListIds = imgui.InputText("Item Hex IDs (comma-separated)", _configuration[trkIdx].customWatchListIds, 512)
+                        imgui.PopItemWidth()
+                        if success then
+                            this.changed = true
+                        end
+                        if imgui.IsItemHovered() then
+                            imgui.SetTooltip("Enter item hex codes separated by commas, e.g.\n  0x00A101, 0x031600, 02B400\nMatched items are highlighted using the Custom Watch List style above.")
+                        end
+                        imgui.TreePop()
+                    end
 
                     if _configuration[trkIdx].customTrackerColorEnable then
                         imgui.PopStyleColor()
