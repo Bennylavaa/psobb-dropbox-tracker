@@ -10,7 +10,7 @@ local clairesDealLoaded, lib_claires_deal = pcall(require, "solylib.items.claire
 local lib_pmt = require("solylib.pmt")
 local cfg = require("Dropbox Tracker.configuration")
 local optionsLoaded, options = pcall(require, "Dropbox Tracker.options")
-local image = require("solylib.image")
+local image = require("Dropbox Tracker.image")
 
 local optionsFileName = "addons/Dropbox Tracker/options.lua"
 local ConfigurationWindow
