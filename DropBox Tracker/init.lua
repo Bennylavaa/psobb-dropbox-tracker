@@ -15,21 +15,11 @@ local image = require("solylib.image")
 local optionsFileName = "addons/Dropbox Tracker/options.lua"
 local ConfigurationWindow
 
-local origPackagePath = package.path
-package.path = './addons/Dropbox Tracker/lua-xtype/src/?.lua;' .. package.path
-package.path = './addons/Dropbox Tracker/MGL/src/?.lua;' .. package.path
-local xtype = require("xtype")
-local mgl = require("MGL")
-package.path = origPackagePath
-
 local function SetDefaultValue(Table, Index, Value)
     Table[Index] = lib_helpers.NotNilOrDefault(Table[Index], Value)
 end
 
--- Category name -> subfolder under images/. PNG filename is the lowercased
--- category name. Missing categories or files fall back to the box renderer.
 local CATEGORY_FOLDER = {
-    -- Consumables
     Monomate = "consumables", Dimate = "consumables", Trimate = "consumables",
     Monofluid = "consumables", Difluid = "consumables", Trifluid = "consumables",
     SolAtomizer = "consumables", MoonAtomizer = "consumables", StarAtomizer = "consumables",
@@ -39,67 +29,37 @@ local CATEGORY_FOLDER = {
     HPMat = "consumables", TPMat = "consumables", PowerMat = "consumables",
     LuckMat = "consumables", MindMat = "consumables", EvadeMat = "consumables",
     DefenseMat = "consumables", RareConsumables = "consumables",
-    -- Weapons
     HighHitCommonWeapon = "weapons", LowHitCommonWeapon = "weapons",
     RareWeapon = "weapons", ESWeapon = "weapons",
-    -- Armor / Barriers / Units / Mags
     CommonArmor = "armor", MaxSocketCommonArmor = "armor", RareArmor = "armor",
     CommonBarrier = "armor", RareBarrier = "armor",
     CommonUnit = "armor", RareUnit = "armor",
     RareMag = "mags",
-    -- Techs
     CommonTech = "techs",
     TechReverser = "techs", TechRyuker = "techs", TechMegid = "techs",
     TechGrants = "techs", TechAnti5 = "techs", TechAnti7 = "techs",
     TechSupport15 = "techs", TechSupport20 = "techs", TechSupportHigh = "techs",
     TechAttack15 = "techs", TechAttack20 = "techs", TechAttackHigh = "techs",
-    -- Misc
     Meseta = "misc", MusicDisk = "misc",
     ClairesDeal = "misc", CustomWatch = "misc",
 }
 
--- Weapon class byte (item.data[2] when data[1]==0) -> silhouette stem.
--- Unmapped bytes fall through to weapon.png, then to the category default.
+-- Indexed by item.data[2] when item.data[1] == 0.
 local WEAPON_TYPE_ICON = {
-    -- Melee
-    [0x01] = "saber",
-    [0x02] = "saber",
-    [0x03] = "saber",
-    [0x04] = "saber",
-    [0x05] = "saber",
-    -- Ranged
-    [0x06] = "gun",
-    [0x07] = "gun",
-    [0x08] = "gun",
-    [0x09] = "gun",
-    -- Tech weapons
-    [0x0A] = "cane",
-    [0x0B] = "cane",
-    [0x0C] = "cane",
-    -- Other melee (knuckles / claws / twin swords)
-    [0x0D] = "saber",
-    [0x0E] = "saber",
-    [0x0F] = "saber",
-    -- S-Rank range 0x70-0x88
-    [0x70] = "saber",
-    [0x71] = "saber",
-    [0x72] = "saber",
-    [0x73] = "saber",
-    [0x74] = "saber",
-    [0x75] = "gun",
-    [0x76] = "gun",
-    [0x77] = "gun",
-    [0x78] = "gun",
-    [0x79] = "cane",
-    [0x7A] = "cane",
-    [0x7B] = "cane",
+    [0x01] = "saber", [0x02] = "saber", [0x03] = "saber", [0x04] = "saber", [0x05] = "saber",
+    [0x06] = "gun",   [0x07] = "gun",   [0x08] = "gun",   [0x09] = "gun",
+    [0x0A] = "cane",  [0x0B] = "cane",  [0x0C] = "cane",
+    [0x0D] = "saber", [0x0E] = "saber", [0x0F] = "saber",
+    [0x70] = "saber", [0x71] = "saber", [0x72] = "saber", [0x73] = "saber", [0x74] = "saber",
+    [0x75] = "gun",   [0x76] = "gun",   [0x77] = "gun",   [0x78] = "gun",
+    [0x79] = "cane",  [0x7A] = "cane",  [0x7B] = "cane",
     [0x7C] = "saber", [0x7D] = "saber", [0x7E] = "saber", [0x7F] = "saber",
     [0x80] = "saber", [0x81] = "saber", [0x82] = "saber", [0x83] = "saber",
     [0x84] = "saber", [0x85] = "saber", [0x86] = "saber", [0x87] = "saber",
     [0x88] = "saber",
 }
 
--- Tech ID (item.data[5]) -> PNG stem in images/techs/.
+-- Indexed by item.data[5] when item is a tech disk.
 local TECH_TYPE_ICON = {
     [0]  = "foie",     [1]  = "gifoie",   [2]  = "rafoie",
     [3]  = "barta",    [4]  = "gibarta",  [5]  = "rabarta",
@@ -110,8 +70,6 @@ local TECH_TYPE_ICON = {
     [18] = "megid",
 }
 
--- Reverse map from category table reference to its name string.
--- Built lazily, reset on LoadOptions.
 local cateNameByTable = nil
 local function invalidateCateNameCache() cateNameByTable = nil end
 
@@ -133,7 +91,6 @@ local function getImagePathForCate(cateTabl, trkIdx, item)
 
     local base = "addons/Dropbox Tracker/images/" .. folder .. "/"
 
-    -- Weapons: type-specific stem first, then weapon.png, then category file.
     if item and folder == "weapons" and item.data and item.data[1] == 0 then
         local typeStem = WEAPON_TYPE_ICON[item.data[2]]
         if typeStem then
@@ -144,7 +101,6 @@ local function getImagePathForCate(cateTabl, trkIdx, item)
         if image.Handle(genericPath) then return genericPath end
     end
 
-    -- Generic per-group fallbacks before the category default.
     if name == "CommonBarrier" or name == "RareBarrier" then
         local barrierPath = base .. "barrier.png"
         if image.Handle(barrierPath) then return barrierPath end
@@ -162,7 +118,6 @@ local function getImagePathForCate(cateTabl, trkIdx, item)
         if image.Handle(magPath) then return magPath end
     end
 
-    -- Tech disks: per-tech icon by data[5], then tech.png, then category file.
     if item and folder == "techs" and item.data
         and item.data[1] == 0x03 and item.data[2] == 0x02 then
         local techStem = TECH_TYPE_ICON[item.data[5]]
@@ -186,16 +141,6 @@ local function getImagePathForCate(cateTabl, trkIdx, item)
 
     return base .. string.lower(name) .. ".png"
 end
-local function SetValue(Table, Index, Value)
-    Table[Index] = Value
-end
-local function convertColorToInt(Alpha,R,G,B)
-    return bit.lshift(Alpha, 24) +
-    bit.lshift(R, 16) +
-    bit.lshift(G, 8) +
-    bit.lshift(B, 0)
-end
-
 local function ParseCustomWatchList(str)
     local set = {}
     if not str or type(str) ~= "string" or str == "" then return set end
@@ -214,7 +159,7 @@ local function LoadOptions()
     if options == nil or type(options) ~= "table" then
         options = {}
     end
-    -- If options loaded, make sure we have all those we need
+    invalidateCateNameCache()
     SetDefaultValue( options, "configurationEnableWindow", true )
     SetDefaultValue( options, "enable", true )
     SetDefaultValue( options, "UptekkHit", true )
@@ -237,11 +182,23 @@ local function LoadOptions()
     SetDefaultValue( options, "customFoV3", 89 )
     SetDefaultValue( options, "customFoV4", 90 )
 
-    for i=1, 1 do
-        local trkIdx = "tracker" .. i
+    do
+        local trkIdx = "tracker1"
         if options[trkIdx] == nil or type(options[trkIdx]) ~= "table" then
             options[trkIdx] = {}
         end
+
+        -- Migrate legacy typo: includeAtrributes -> includeAttributes. Must
+        -- run before SetDefaultValue so saved values carry over.
+        for _, cate in pairs(options[trkIdx]) do
+            if type(cate) == "table" and cate["includeAtrributes"] ~= nil then
+                if cate.includeAttributes == nil then
+                    cate.includeAttributes = cate["includeAtrributes"]
+                end
+                cate["includeAtrributes"] = nil
+            end
+        end
+
         SetDefaultValue( options[trkIdx], "EnableWindow", true )
         SetDefaultValue( options[trkIdx], "HideWhenMenu", true )
         SetDefaultValue( options[trkIdx], "HideWhenSymbolChat", true )
@@ -271,6 +228,10 @@ local function LoadOptions()
         SetDefaultValue( options[trkIdx], "showDistance", false )
         SetDefaultValue( options[trkIdx], "showDebugInfo", false )
         SetDefaultValue( options[trkIdx], "markUnusableWeapons", true )
+        SetDefaultValue( options[trkIdx], "markUnusableTechs", true )
+        SetDefaultValue( options[trkIdx], "markRedundantTechs", false )
+        SetDefaultValue( options[trkIdx], "showKnownTechIndicator", false )
+        SetDefaultValue( options[trkIdx], "hideKnownTechs", false )
         SetDefaultValue( options[trkIdx], "compactLayout", true )
         SetDefaultValue( options[trkIdx], "compactWindowScale", 1.0 )
         SetDefaultValue( options[trkIdx], "customWatchListIds", "" )
@@ -352,7 +313,7 @@ local function LoadOptions()
         SetDefaultValue(options[trkIdx][cate], "enabled", true)
         SetDefaultValue(options[trkIdx][cate], "HitMin", 40)
         SetDefaultValue(options[trkIdx][cate], "showName", true)
-        SetDefaultValue(options[trkIdx][cate], "includeAtrributes", true)
+        SetDefaultValue(options[trkIdx][cate], "includeAttributes", true)
         SetDefaultValue(options[trkIdx][cate], "includeHit", true)
         SetDefaultValue(options[trkIdx][cate], "includeSpecial", true)
         SetDefaultValue(options[trkIdx][cate], "showBox", true)
@@ -391,7 +352,7 @@ local function LoadOptions()
         cate = "RareWeapon"
         SetDefaultValue(options[trkIdx][cate], "enabled", true)
         SetDefaultValue(options[trkIdx][cate], "showName", true)
-        SetDefaultValue(options[trkIdx][cate], "includeAtrributes", true)
+        SetDefaultValue(options[trkIdx][cate], "includeAttributes", true)
         SetDefaultValue(options[trkIdx][cate], "includeHit", true)
         SetDefaultValue(options[trkIdx][cate], "includeSpecial", true)
         SetDefaultValue(options[trkIdx][cate], "showBox", true)
@@ -402,7 +363,7 @@ local function LoadOptions()
         cate = "ESWeapon"
         SetDefaultValue(options[trkIdx][cate], "enabled", true)
         SetDefaultValue(options[trkIdx][cate], "showName", true)
-        SetDefaultValue(options[trkIdx][cate], "includeAtrributes", true)
+        SetDefaultValue(options[trkIdx][cate], "includeAttributes", true)
         SetDefaultValue(options[trkIdx][cate], "includeHit", true)
         SetDefaultValue(options[trkIdx][cate], "includeSpecial", true)
         SetDefaultValue(options[trkIdx][cate], "showBox", true)
@@ -804,7 +765,6 @@ local function LoadOptions()
         SetDefaultValue(options[trkIdx][cate], "useCustomColor", true)
         SetDefaultValue(options[trkIdx][cate], "customBorderColor", -16728065)
 
-        -- fill in any missing values
         for _,cate in pairs(categories) do
             SetDefaultValue(options[trkIdx][cate], "enabled", false)
             SetDefaultValue(options[trkIdx][cate], "showName", true)
@@ -824,82 +784,72 @@ LoadOptions()
 local customWatchSet = ParseCustomWatchList(options.tracker1.customWatchListIds)
 local invItemCount = 0
 
--- Append server specific items
 lib_items_list.AddServerItems(options.server)
 
-local optionsStringBuilder = ""
-local function BuildOptionsString(table, depth)
+local function BuildOptionsString(tab, depth, parts)
     local tabSpacing = 4
     local maxDepth = 5
-    
-    if not depth or depth == nil then
-        depth = 0
-    end
+
+    depth = depth or 0
     local spaces = string.rep(" ", tabSpacing + tabSpacing * depth)
-    
-    --begin statement
+
     if depth < 1 then
-        optionsStringBuilder = "return\n{\n"
+        parts[#parts+1] = "return\n{\n"
     end
-    --iterate over table
-    for key, value in pairs(table) do
-        
-        local type = type(value)
-        if type == "string" then
-            optionsStringBuilder = optionsStringBuilder .. spaces .. string.format("%s = \"%s\",\n", key, tostring(value))
-        
-        elseif type == "number" then
-            -- check is float/double
+
+    for key, value in pairs(tab) do
+        local vt = type(value)
+        if vt == "string" then
+            parts[#parts+1] = spaces .. string.format("%s = \"%s\",\n", key, tostring(value))
+        elseif vt == "number" then
             if value % 1 == 0 then
-                optionsStringBuilder = optionsStringBuilder .. spaces .. string.format("%s = %d,\n", key, value)
+                parts[#parts+1] = spaces .. string.format("%s = %d,\n", key, value)
             else
-                optionsStringBuilder = optionsStringBuilder .. spaces .. string.format("%s = %g,\n", key, value)
+                parts[#parts+1] = spaces .. string.format("%s = %g,\n", key, value)
             end
-            
-        elseif type == "boolean" or value == nil then
-            optionsStringBuilder = optionsStringBuilder .. spaces .. string.format("%s = %s,\n", key, tostring(value))
-            
-        --recurse
-        elseif type == "table" then
-            if depth > maxDepth then
-                return
-            end
-            optionsStringBuilder = optionsStringBuilder .. spaces .. string.format("%s = {\n", key)
-            BuildOptionsString(value, depth + 1)
-            optionsStringBuilder = optionsStringBuilder .. spaces .. string.format("},\n", key)
+        elseif vt == "boolean" or value == nil then
+            parts[#parts+1] = spaces .. string.format("%s = %s,\n", key, tostring(value))
+        elseif vt == "table" then
+            if depth > maxDepth then return end
+            parts[#parts+1] = spaces .. string.format("%s = {\n", key)
+            BuildOptionsString(value, depth + 1, parts)
+            parts[#parts+1] = spaces .. "},\n"
         end
-        
     end
-    --finalize statement
+
     if depth < 1 then
-        optionsStringBuilder = optionsStringBuilder .. "}\n"
+        parts[#parts+1] = "}\n"
     end
 end
 
 local function SaveOptions(options)
     local file = io.open(optionsFileName, "w")
     if file ~= nil then
-        BuildOptionsString(options)
-        
+        local parts = {}
+        BuildOptionsString(options, 0, parts)
         io.output(file)
-        io.write(optionsStringBuilder)
+        io.write(table.concat(parts))
         io.close(file)
     end
 end
 
-local playerSelfAddr = nil
-local playerSelfClass = nil
-local playerSelfATP = 0
-local playerSelfATA = 0
-local playerSelfMST = 0
-local playerSelfCoords = nil
-local playerSelfDirs = nil
-local playerSelfNormDir = nil
+-- The next several state holders are bundled tables, not scalars, to keep
+-- present()'s upvalue count under Lua 5.1's 60-per-function cap.
+local playerSelf = {
+    addr   = nil,
+    class  = nil,
+    atp    = 0,
+    ata    = 0,
+    mst    = 0,
+    techLevels = {},  -- [techID] = learned level (0 if not learned)
+    coords = nil,
+    dirs   = nil,
+}
 
--- PMT weapon race + stat reqs, keyed by item.hex. `false` = lookup failed.
+-- Keyed by item.hex. `false` (not nil) marks a confirmed-missing PMT entry
+-- so we don't re-probe on every frame.
 local weaponClassCache = {}
 
--- Hex dump debug window state. Toggled from the main menu.
 local hexDumpWindow = {
     open = false,
     slot = 1,
@@ -908,14 +858,13 @@ local hexDumpWindow = {
     snapshotB = nil,
     showDiff = false,
 }
--- Forward-declared; assigned later. present() needs to see it.
+-- Forward-declared; assigned at the bottom of the file. present() captures it.
 local HexDumpWindowUpdate
-local pCoord = nil
-local cameraCoords = nil
-local cameraDirs = nil
-local cameraNormDirVec2 = nil
-local cameraNormDirVec3 = nil
-local item_graph_data = {}
+local cameraState = {
+    coords = nil,
+    dirs   = nil,
+    zoom   = nil,
+}
 local toolLookupTable = {}
 local invToolLookupTable = {}
 local musicDiskLookupTable = {}
@@ -924,10 +873,9 @@ local resolutionHeight = {}
 local trackerBox = {}
 local screenFov = nil
 local aspectRatio = nil
-local eyeWorld    = nil
-local eyeDir      = nil
+local eyeWorld = {x = 0, y = 0, z = 0}
+local eyeDir   = {x = 0, y = 0, z = 0}
 local determinantScr = nil
-local cameraZoom = nil
 local lastCameraZoom = nil
 local trackerWindowLookup = {}
 
@@ -940,49 +888,56 @@ local _CameraDirZ      = 0x00A48794
 local _CameraZoomLevel = 0x009ACEDC
 
 local function updateToolLookupTable()
-    for i=1, 1 do
-        local trkIdx = "tracker" .. i
-        toolLookupTable[trkIdx] = {
-            [0x00] = {
-                [0x00] = {options[trkIdx]["Monomate"], "Monomate"},
-                [0x01] = {options[trkIdx]["Dimate"], "Dimate"},
-                [0x02] = {options[trkIdx]["Trimate"], "Trimate"},
-            },
-            [0x01] = {
-                [0x00] = {options[trkIdx]["Monofluid"], "Monofluid"},
-                [0x01] = {options[trkIdx]["Difluid"], "Difluid"},
-                [0x02] = {options[trkIdx]["Trifluid"], "Trifluid"},
-            },
-            [0x03] = { [0x00] = {options[trkIdx]["SolAtomizer"], "SolAtomizer"} },
-            [0x04] = { [0x00] = {options[trkIdx]["MoonAtomizer"], "MoonAtomizer"} },
-            [0x05] = { [0x00] = {options[trkIdx]["StarAtomizer"], "StarAtomizer"} },
-            [0x06] = {
-                [0x00] = {options[trkIdx]["Antidote"], "Antidote"},
-                [0x01] = {options[trkIdx]["Antiparalysis"], "Antiparalysis"},
-            },
-            [0x07] = { [0x00] = {options[trkIdx]["Telepipe"], "Telepipe"} },
-            [0x08] = { [0x00] = {options[trkIdx]["TrapVision"], "TrapVision"} },
-            [0x09] = { [0x00] = {options[trkIdx]["ScapeDoll"], "ScapeDoll"} },
-            [0x0A] = {
-                [0x00] = {options[trkIdx]["Monogrinder"], "Monogrinder"},
-                [0x01] = {options[trkIdx]["Digrinder"], "Digrinder"},
-                [0x02] = {options[trkIdx]["Trigrinder"], "Trigrinder"},
-            },
-            [0x0B] = {
-                [0x00] = {options[trkIdx]["PowerMat"], "PowerMat"},
-                [0x01] = {options[trkIdx]["MindMat"], "MindMat"},
-                [0x02] = {options[trkIdx]["EvadeMat"], "EvadeMat"},
-                [0x03] = {options[trkIdx]["HPMat"], "HPMat"},
-                [0x04] = {options[trkIdx]["TPMat"], "TPMat"},
-                [0x05] = {options[trkIdx]["DefenseMat"], "DefenseMat"},
-                [0x06] = {options[trkIdx]["LuckMat"], "LuckMat"},
-            },
-        }
-    end
+    local trkIdx = "tracker1"
+    toolLookupTable[trkIdx] = {
+        [0x00] = {
+            [0x00] = {options[trkIdx]["Monomate"], "Monomate"},
+            [0x01] = {options[trkIdx]["Dimate"], "Dimate"},
+            [0x02] = {options[trkIdx]["Trimate"], "Trimate"},
+        },
+        [0x01] = {
+            [0x00] = {options[trkIdx]["Monofluid"], "Monofluid"},
+            [0x01] = {options[trkIdx]["Difluid"], "Difluid"},
+            [0x02] = {options[trkIdx]["Trifluid"], "Trifluid"},
+        },
+        [0x03] = { [0x00] = {options[trkIdx]["SolAtomizer"], "SolAtomizer"} },
+        [0x04] = { [0x00] = {options[trkIdx]["MoonAtomizer"], "MoonAtomizer"} },
+        [0x05] = { [0x00] = {options[trkIdx]["StarAtomizer"], "StarAtomizer"} },
+        [0x06] = {
+            [0x00] = {options[trkIdx]["Antidote"], "Antidote"},
+            [0x01] = {options[trkIdx]["Antiparalysis"], "Antiparalysis"},
+        },
+        [0x07] = { [0x00] = {options[trkIdx]["Telepipe"], "Telepipe"} },
+        [0x08] = { [0x00] = {options[trkIdx]["TrapVision"], "TrapVision"} },
+        [0x09] = { [0x00] = {options[trkIdx]["ScapeDoll"], "ScapeDoll"} },
+        [0x0A] = {
+            [0x00] = {options[trkIdx]["Monogrinder"], "Monogrinder"},
+            [0x01] = {options[trkIdx]["Digrinder"], "Digrinder"},
+            [0x02] = {options[trkIdx]["Trigrinder"], "Trigrinder"},
+        },
+        [0x0B] = {
+            [0x00] = {options[trkIdx]["PowerMat"], "PowerMat"},
+            [0x01] = {options[trkIdx]["MindMat"], "MindMat"},
+            [0x02] = {options[trkIdx]["EvadeMat"], "EvadeMat"},
+            [0x03] = {options[trkIdx]["HPMat"], "HPMat"},
+            [0x04] = {options[trkIdx]["TPMat"], "TPMat"},
+            [0x05] = {options[trkIdx]["DefenseMat"], "DefenseMat"},
+            [0x06] = {options[trkIdx]["LuckMat"], "LuckMat"},
+        },
+    }
 end
 updateToolLookupTable()
 
 local function newInvToolLookupTable()
+    -- Called every frame: reset counts in place rather than reallocating.
+    if invToolLookupTable[0x00] ~= nil then
+        for _, group in pairs(invToolLookupTable) do
+            for _, entry in pairs(group) do
+                entry[1] = 0
+            end
+        end
+        return
+    end
     invToolLookupTable = {
         [0x00] = {
             [0x00] = {0, 10, "Monomate"},
@@ -1110,25 +1065,25 @@ local function clampVal(clamp, min, max)
     return clamp < min and min or clamp > max and max or clamp
 end
 
-local function Norm(Val,Min,Max)
-    return (Val - Min)/(Max - Min)
-end
 local function Lerp(Norm,Min,Max)
     return (Max - Min) * Norm + Min
 end
 
+-- Cached tables are returned by reference. Callers must treat them as read-only.
+local shiftHexColorCache = {}
 local function shiftHexColor(color)
-    return
-    {
+    local cached = shiftHexColorCache[color]
+    if cached then return cached end
+    cached = {
         bit.band(bit.rshift(color, 24), 0xFF),
         bit.band(bit.rshift(color, 16), 0xFF),
         bit.band(bit.rshift(color, 8), 0xFF),
         bit.band(color, 0xFF)
     }
+    shiftHexColorCache[color] = cached
+    return cached
 end
 
--- Tint for category icons. Returns (r, g, b, a) floats 0..1.
--- Order: customImageColor, customBorderColor, customTrackerColorMarker.
 local function getImageTintForCate(cateTabl, trkIdx)
     local clr
     if cateTabl.useCustomImageColor and cateTabl.customImageColor then
@@ -1141,8 +1096,7 @@ local function getImageTintForCate(cateTabl, trkIdx)
     return clr[2] / 255, clr[3] / 255, clr[4] / 255, clr[1] / 255
 end
 
--- Class byte -> archetype bit in PMT weapon `_class` (low 3 bits).
--- bit 0 = Hunter, bit 1 = Ranger, bit 2 = Force.
+-- PMT weapon `_class` low 3 bits: bit 0 = Hunter, bit 1 = Ranger, bit 2 = Force.
 local CLASS_ARCHETYPE_BIT = {
     [0]  = 0x01, -- HUmar
     [1]  = 0x01, -- HUnewearl
@@ -1160,10 +1114,11 @@ local CLASS_ARCHETYPE_BIT = {
 
 -- Returns nil when usable, "race" when archetype-blocked, "stat" when below req.
 local function isWeaponUnusable(item)
-    if playerSelfClass == nil then return nil end
+    local pclass = playerSelf.class
+    if pclass == nil then return nil end
     if item.hex == nil or item.data == nil or item.data[1] ~= 0 then return nil end
 
-    local archetypeBit = CLASS_ARCHETYPE_BIT[playerSelfClass]
+    local archetypeBit = CLASS_ARCHETYPE_BIT[pclass]
     if archetypeBit == nil then return nil end
 
     local cached = weaponClassCache[item.hex]
@@ -1185,43 +1140,130 @@ local function isWeaponUnusable(item)
 
     if bit.band(cached.race, archetypeBit) == 0 then return "race" end
 
-    if playerSelfATP < cached.atpReq then return "stat" end
-    if playerSelfATA < cached.ataReq then return "stat" end
-    if playerSelfMST < cached.mstReq then return "stat" end
+    if playerSelf.atp < cached.atpReq then return "stat" end
+    if playerSelf.ata < cached.ataReq then return "stat" end
+    if playerSelf.mst < cached.mstReq then return "stat" end
 
     return nil
 end
 
-local function computePixelCoordinates(pWorld, eyeWorld, eyeDir, determinant)
+-- Verbatim MaxTechniqueLevels from BB v4 ItemPMT (newserv item-parameter-table-bb-v4.json).
+-- Indexed [techID (item.data[5])][classID (playerSelf.class)].
+-- Stored value is 0-indexed (so 0x0E means "max Lv 15"); 0xFF means class can't learn at all.
+-- Class caps only: MST gating (the practical reason hunters can't learn Gifoie etc.) is not modelled here.
+local TECH_MAX_BY_CLASS = {
+    [0]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- foie
+    [1]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- gifoie
+    [2]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- rafoie
+    [3]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- barta
+    [4]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- gibarta
+    [5]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- rabarta
+    [6]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- zonde
+    [7]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- gizonde
+    [8]  = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- razonde
+    [9]  = {[0]=0xFF,[1]=0xFF,[2]=0xFF,[3]=0xFF,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0xFF}, -- grants
+    [10] = {[0]=0xFF,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- deband
+    [11] = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0xFF,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- jellen
+    [12] = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0xFF,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- zalure
+    [13] = {[0]=0xFF,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- shifta
+    [14] = {[0]=0x00,[1]=0x00,[2]=0xFF,[3]=0x00,[4]=0xFF,[5]=0xFF,[6]=0x00,[7]=0x00,[8]=0x00,[9]=0xFF,[10]=0x00,[11]=0x00}, -- ryuker
+    [15] = {[0]=0x0E,[1]=0x13,[2]=0xFF,[3]=0x0E,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0x13}, -- resta
+    [16] = {[0]=0x04,[1]=0x06,[2]=0xFF,[3]=0x04,[4]=0xFF,[5]=0xFF,[6]=0x06,[7]=0x06,[8]=0x06,[9]=0xFF,[10]=0x06,[11]=0x06}, -- anti
+    [17] = {[0]=0xFF,[1]=0xFF,[2]=0xFF,[3]=0xFF,[4]=0xFF,[5]=0xFF,[6]=0x00,[7]=0x00,[8]=0x00,[9]=0xFF,[10]=0x00,[11]=0xFF}, -- reverser
+    [18] = {[0]=0xFF,[1]=0xFF,[2]=0xFF,[3]=0xFF,[4]=0xFF,[5]=0xFF,[6]=0x1D,[7]=0x1D,[8]=0x1D,[9]=0xFF,[10]=0x1D,[11]=0xFF}, -- megid
+}
 
-    local pRaster = mgl.vec2(0)
-    local vis = -1
+-- MST required to learn each tech disk, indexed [techID][level] (level is 1-indexed).
+-- Source: PSO Archive technique guide. Verified vs in-game tooltip: Gizonde Lv 9 = 300 MST.
+-- Single-level techs (Reverser, Ryuker) only have an entry at Lv 1.
+-- Shared progression arrays are reused (e.g. Shifta/Deband/Jellen/Zalure all use _MST_SUPPORT).
+local _MST_FOIE = {40,60,80,100,120,140,160,180,200,220,240,260,280,300,320,340,360,380,400,420,440,460,480,500,520,540,560,580,600,620}
+local _MST_BARTA = {35,60,85,110,135,160,185,210,235,260,285,310,335,360,385,410,435,460,485,510,535,560,585,610,635,660,685,710,735,760}
+local _MST_ZONDE = {44,68,92,116,140,164,188,212,236,260,284,308,332,356,380,404,428,452,476,500,524,548,572,596,620,644,668,692,716,740}
+local _MST_GIFOIE = {100,125,150,175,200,225,250,275,300,325,350,375,400,425,450,475,500,525,550,575,600,625,650,675,700,725,750,775,800,825}
+-- Gibarta Lv 20 corrected from 565 (likely transcription typo in source) to 556 to fit the +24 progression.
+local _MST_GIBARTA = {100,124,148,172,196,220,244,268,292,316,340,364,388,412,436,460,484,508,532,556,580,604,628,652,676,700,724,748,772,796}
+local _MST_GIZONDE = {100,125,150,175,200,225,250,275,300,325,350,375,400,425,450,475,500,525,550,575,600,625,650,675,700,725,750,775,800,825}
+local _MST_RAFOIE = {133,161,189,217,245,273,301,329,357,385,413,441,469,497,525,553,581,609,637,665,693,721,749,777,805,833,861,889,917,945}
+local _MST_RABARTA = {106,136,166,196,226,256,286,316,346,376,406,436,466,496,526,556,586,616,646,676,706,736,766,796,826,856,886,916,946,976}
+local _MST_RAZONDE = {134,164,194,224,254,284,314,344,374,404,434,464,494,524,554,584,614,644,674,704,734,764,794,824,854,884,914,944,974,1004}
+local _MST_GRANTS = {160,188,216,244,272,300,328,356,384,412,440,468,496,524,552,580,608,636,664,692,720,748,776,804,832,860,888,916,944,972}
+local _MST_MEGID = _MST_GRANTS
+local _MST_RESTA = {50,80,110,140,170,200,230,260,290,320,350,380,410,440,470,500,530,560,590,620,650,680,710,740,770,800,830,860,890,920}
+local _MST_ANTI = {85,111,137,163,189,215,241,267,293,319,345,371,397,423,449,475,501,527,553,579,605,631,657,683,709,735,761,787,813,839}
+local _MST_SUPPORT = {60,88,116,144,172,200,228,256,284,312,340,368,396,424,452,480,508,536,564,592,620,648,676,704,732,760,788,816,844,872}
+local _MST_REVERSER = {150}
+local _MST_RYUKER = {150}
 
-    local vDir = pWorld - eyeWorld
-    vDir = mgl.normalize(vDir)
-    local fdp = mgl.dot( eyeDir, vDir )
+local MST_REQ_PER_TECH_LEVEL = {
+    [0]  = _MST_FOIE,
+    [1]  = _MST_GIFOIE,
+    [2]  = _MST_RAFOIE,
+    [3]  = _MST_BARTA,
+    [4]  = _MST_GIBARTA,
+    [5]  = _MST_RABARTA,
+    [6]  = _MST_ZONDE,
+    [7]  = _MST_GIZONDE,
+    [8]  = _MST_RAZONDE,
+    [9]  = _MST_GRANTS,
+    [10] = _MST_SUPPORT,  -- deband
+    [11] = _MST_SUPPORT,  -- jellen
+    [12] = _MST_SUPPORT,  -- zalure
+    [13] = _MST_SUPPORT,  -- shifta
+    [14] = _MST_RYUKER,
+    [15] = _MST_RESTA,
+    [16] = _MST_ANTI,
+    [17] = _MST_REVERSER,
+    [18] = _MST_MEGID,
+}
 
-    --fdp must be nonzero ( in other words, vDir must not be perpendicular to angCamRot:Forward() )
-    --or we will get a divide by zero error when calculating vProj below.
-    if fdp == 0 then
-        return pRaster,-1
+-- Returns nil when learnable, "race" when class-blocked or disk level above class cap,
+-- "stat" when class can learn it but MST is below the disk's requirement.
+local function isTechUnusable(item)
+    local pclass = playerSelf.class
+    if pclass == nil then return nil end
+    if item.data == nil or item.data[1] ~= 0x03 or item.data[2] ~= 0x02 then return nil end
+    if item.tool == nil or item.tool.level == nil then return nil end
+
+    local row = TECH_MAX_BY_CLASS[item.data[5]]
+    if row == nil then return nil end
+    local maxStored = row[pclass]
+    if maxStored == nil or maxStored == 0xFF then return "race" end
+    if item.tool.level > maxStored + 1 then return "race" end
+
+    local mstRow = MST_REQ_PER_TECH_LEVEL[item.data[5]]
+    if mstRow then
+        local req = mstRow[item.tool.level]
+        if req and playerSelf.mst < req then return "stat" end
     end
 
-    --Using linear projection, project this vector onto the plane of the slice
-    local ddfp = determinant/fdp
-    local vProj = mgl.vec3( ddfp,ddfp,ddfp ) * vDir
-    --get the up component from the forward vector assuming world yaxis (vertical axis 0,+1,0) is up
-    --https://stackoverflow.com/questions/1171849/finding-quaternion-representing-the-rotation-from-one-vector-to-another/1171995#1171995
-    local eyeRight = mgl.cross( eyeDir, mgl.vec3(0,1,0) )
-    local eyeLeft  = mgl.cross( eyeRight, eyeDir )
+    return nil
+end
 
-    if fdp > 0.0000001 then
-        vis = 1
-    end
-    pRaster.x =   mgl.dot(eyeRight,vProj) --0.5 * iScreenW + mgl.dot(eyeRight,vProj)
-    pRaster.y = - mgl.dot(eyeLeft,vProj) --0.5 * iScreenH - mgl.dot(eyeLeft,vProj)
+-- Returns (screenX, screenY, vis). Closed-form below skips materialising
+-- vProj/eyeRight/eyeLeft as separate vectors:
+--   eyeRight = cross(eyeDir, +Y) = (-edz, 0, edx)
+--   eyeLeft  = cross(eyeRight, eyeDir) = (-edx*edy, edx*edx + edz*edz, -edz*edy)
+--   sx =  dot(eyeRight, vProj) = ddfp * (-edz*vx + edx*vz)
+--   sy = -dot(eyeLeft,  vProj) = ddfp * (edx*edy*vx - (edx*edx + edz*edz)*vy + edz*edy*vz)
+local function computePixelCoordinates(pxw, pyw, pzw, exw, eyw, ezw, edx, edy, edz, determinant)
+    local vx = pxw - exw
+    local vy = pyw - eyw
+    local vz = pzw - ezw
+    local vlen = math.sqrt(vx*vx + vy*vy + vz*vz)
+    if vlen == 0 then return 0, 0, -1 end
+    vx = vx / vlen
+    vy = vy / vlen
+    vz = vz / vlen
 
-    return pRaster, vis
+    local fdp = edx*vx + edy*vy + edz*vz
+    if fdp == 0 then return 0, 0, -1 end
+
+    local ddfp = determinant / fdp
+    local sx = ddfp * (edx*vz - edz*vx)
+    local sy = ddfp * (edx*edy*vx - (edx*edx + edz*edz)*vy + edz*edy*vz)
+    local vis = (fdp > 0.0000001) and 1 or -1
+    return sx, sy, vis
 end
 
 local function ItemAppendPosition(item)
@@ -1229,20 +1271,25 @@ local function ItemAppendPosition(item)
     item.posx = pso.read_f32(item.address + 0x38)
     item.posy = pso.read_f32(item.address + 0x3C) -- vertical axis
     item.posz = pso.read_f32(item.address + 0x40)
-    item.pos3 = mgl.vec3(item.posx,item.posy,item.posz)
 end
 
 local function ItemAppendPlayerDistance(item)
     if not item then return end
-    item.curPlayerDistance = mgl.length(item.pos3 - pCoord)
+    local pc = playerSelf.coords
+    local dx = item.posx - pc.x
+    local dy = item.posy - pc.y
+    local dz = item.posz - pc.z
+    item.curPlayerDistance = math.sqrt(dx*dx + dy*dy + dz*dz)
 end
 
 local function ItemAppendScreenPos(item)
-
-    local pRaster,visible = computePixelCoordinates(item.pos3, eyeWorld, eyeDir, determinantScr)
-    
-    item.screenX = pRaster.x
-    item.screenY = pRaster.y
+    local sx, sy, visible = computePixelCoordinates(
+        item.posx, item.posy, item.posz,
+        eyeWorld.x, eyeWorld.y, eyeWorld.z,
+        eyeDir.x,   eyeDir.y,   eyeDir.z,
+        determinantScr)
+    item.screenX = sx
+    item.screenY = sy
     item.screenVisDirection = visible
 end
 
@@ -1358,8 +1405,9 @@ local function ApplyInvFullIndicator(item, trkIdx)
     local maxSize = options.inventoryMaxSize or 30
     if invItemCount < maxSize then return end
 
-    -- If user already has any of this stackable TOOL, it either stacks or is at max - no INV FULL warning needed.
-    -- Gate on data[1] == 0x03 so a weapon's data[2] doesn't accidentally collide with a tool subcategory.
+    -- If the user already holds any of this stackable tool it'll either stack
+    -- or hit MAX, so suppress the warning. Gate on data[1] == 0x03 so a
+    -- weapon's data[2] can't accidentally collide with a tool subcategory.
     if item.data[1] == 0x03 and invToolLookupTable[item.data[2]] and invToolLookupTable[item.data[2]][item.data[3]] then
         local invTab = invToolLookupTable[item.data[2]][item.data[3]]
         if invTab[1] and invTab[1] > 0 then
@@ -1385,14 +1433,22 @@ local function ItemAppendVisibilityData(cate,item,trkIdx)
     ApplyInventoryCounterTag(item, trkIdx)
     ApplyInvFullIndicator(item, trkIdx)
 
-    if not item.screenShouldNotShow then
-        -- An image counts as displayable content alongside name/box.
-        local hasImage = false
-        if cate.showImage then
-            local path = getImagePathForCate(cate, trkIdx, item)
-            if path and image.Handle(path) then hasImage = true end
+    if cate.showImage then
+        local path = getImagePathForCate(cate, trkIdx, item)
+        if path and image.Handle(path) then
+            item.imagePath = path
+            item.imagePathOk = true
+        else
+            item.imagePath = nil
+            item.imagePathOk = false
         end
-        if not cate.showName and not cate.showBox and not hasImage then
+    else
+        item.imagePath = nil
+        item.imagePathOk = false
+    end
+
+    if not item.screenShouldNotShow then
+        if not cate.showName and not cate.showBox and not item.imagePathOk then
             item.screenShow =  false
             item.screenX = nil
             item.screenY = nil
@@ -1400,7 +1456,6 @@ local function ItemAppendVisibilityData(cate,item,trkIdx)
         end
     end
 
-    -- ignore if item is too far away
     ItemAppendPosition(item)
     ItemAppendPlayerDistance(item)
     if options[trkIdx].ignoreItemMaxDist > 0 then
@@ -1411,21 +1466,30 @@ local function ItemAppendVisibilityData(cate,item,trkIdx)
             return
         end
     end
-    
-    -- get x,y position on screen where item is
+
     ItemAppendScreenPos(item)
     if options[trkIdx].clampItemView then
+        local clampR = resolutionHeight.clampRescale
         if item.screenVisDirection < 0 then
-            local tempVec2 = mgl.normalize( mgl.vec2(-item.screenX,-item.screenY) ) * resolutionHeight.clampRescale
-            item.screenX = tempVec2.x
-            item.screenY = tempVec2.y
+            -- Behind camera: flip the screen-space vector and clamp to the edge.
+            local sxn = -item.screenX
+            local syn = -item.screenY
+            local len = math.sqrt(sxn*sxn + syn*syn)
+            if len > 0 then
+                local s = clampR / len
+                item.screenX = sxn * s
+                item.screenY = syn * s
+            end
         else
-            if not (item.screenX > -resolutionHeight.clampRescale and item.screenX < resolutionHeight.clampRescale and
-                    item.screenY > -resolutionWidth.clampRescale  and item.screenY < resolutionWidth.clampRescale)
+            if not (item.screenX > -clampR and item.screenX < clampR and
+                    item.screenY > -resolutionWidth.clampRescale and item.screenY < resolutionWidth.clampRescale)
             then
-                local tempVec2 = mgl.normalize( mgl.vec2(item.screenX, item.screenY) ) * resolutionHeight.clampRescale
-                item.screenX = tempVec2.x
-                item.screenY = tempVec2.y
+                local len = math.sqrt(item.screenX*item.screenX + item.screenY*item.screenY)
+                if len > 0 then
+                    local s = clampR / len
+                    item.screenX = item.screenX * s
+                    item.screenY = item.screenY * s
+                end
             end
         end
         item.screenShow = true
@@ -1443,7 +1507,7 @@ local function ItemAppendVisibilityData(cate,item,trkIdx)
     item.cate = cate
 end
 
-local function AddWeaponAtrributes(item,showAtribs,showHit)
+local function AddWeaponAttributes(item,showAttribs,showHit)
     local colorGrey = {1.0, 0.4706, 0.4706, 0.4706}
     local wNameCount = 0
     local attribs = 0
@@ -1461,7 +1525,7 @@ local function AddWeaponAtrributes(item,showAtribs,showHit)
         return
     end
 
-    if showAtribs then
+    if showAttribs then
         table.insert(item.wName, { " [", nil })
         table.insert(item.wName, { }) -- native
         table.insert(item.wName, { "/", nil })
@@ -1499,24 +1563,23 @@ local function AddWeaponAtrributes(item,showAtribs,showHit)
 
     for i=1, attribs, 1 do
         local attribIdx = i+attribStart
-        if item.weapon.stats[attribIdx] > 0 then
+        local statVal = item.weapon.stats[attribIdx]
+        if statVal > 0 then
             if i == hitItr then
                 local clr, pL
-                if item.weapon.stats[attribIdx] < 60 then
-                    pL = item.weapon.stats[attribIdx] / 60
+                if statVal < 60 then
+                    pL = statVal / 60
                     clr = { 1.0, Lerp(pL, 0, 1.0), 1.0, 0.0 }
                 else
-                    pL = (item.weapon.stats[attribIdx] - 60) / 40
+                    pL = (statVal - 60) / 40
                     clr = { 1.0, 1.0, Lerp(pL, 1.0, 0), 0.0 }
                 end
-                item.wName[i*2+wNameCount] = { item.weapon.stats[attribIdx], clr, nil, "weaponStats" }
+                item.wName[i*2+wNameCount] = { statVal, clr, nil, "weaponStats" }
             else
-                item.wName[i*2+wNameCount] = { item.weapon.stats[attribIdx], nil, nil, "weaponStats" }
+                item.wName[i*2+wNameCount] = { statVal, nil, nil, "weaponStats" }
             end
-        elseif item.weapon.stats[i+1] == 0 then
-            item.wName[i*2+wNameCount] = { item.weapon.stats[attribIdx], colorGrey, nil, "weaponStats" }
         else
-            item.wName[i*2+wNameCount] = { item.weapon.stats[attribIdx], colorGrey, nil, "weaponStats" }
+            item.wName[i*2+wNameCount] = { statVal, colorGrey, nil, "weaponStats" }
         end
     end
 end
@@ -1616,33 +1679,31 @@ local function ProcessWeapon(item, floor, trkIdx)
         if item_cfg ~= nil and item_cfg[1] ~= 0 then
             item.wName = { { item.name, nil } }
             AddWeaponSpecial(item,options[trkIdx]["RareWeapon"].includeSpecial)
-            AddWeaponAtrributes(item,options[trkIdx]["RareWeapon"].includeAtrributes,options[trkIdx]["RareWeapon"].includeHit)
+            AddWeaponAttributes(item,options[trkIdx]["RareWeapon"].includeAttributes,options[trkIdx]["RareWeapon"].includeHit)
             ItemAppendVisibilityData( options[trkIdx]["RareWeapon"], item, trkIdx )
         elseif floor then
-            -- Hide weapon drops with less then xxHit (40 default) untekked
             if item.weapon.stats[6] >= options[trkIdx].HighHitCommonWeapon.HitMin then
                 item.wName = { { item.name, nil } }
                 AddWeaponSpecial(item,options[trkIdx]["HighHitCommonWeapon"].includeSpecial)
-                AddWeaponAtrributes(item,options[trkIdx]["HighHitCommonWeapon"].includeAtrributes,options[trkIdx]["HighHitCommonWeapon"].includeHit)
+                AddWeaponAttributes(item,options[trkIdx]["HighHitCommonWeapon"].includeAttributes,options[trkIdx]["HighHitCommonWeapon"].includeHit)
                 ItemAppendVisibilityData( options[trkIdx]["HighHitCommonWeapon"], item, trkIdx )
             elseif options.UptekkHit and item.weapon.untekked and item.weapon.stats[6] > 0 and item.weapon.stats[6] >= options[trkIdx].HighHitCommonWeapon.HitMin - 10 then
-                    item.wName = { { item.name, nil } }
-                    AddWeaponSpecial(item,options[trkIdx]["HighHitCommonWeapon"].includeSpecial)
-                    AddWeaponAtrributes(item,options[trkIdx]["HighHitCommonWeapon"].includeAtrributes,options[trkIdx]["HighHitCommonWeapon"].includeHit)
-                    ItemAppendVisibilityData( options[trkIdx]["HighHitCommonWeapon"], item, trkIdx )
-                -- Show Claire's Deal 5 items
+                item.wName = { { item.name, nil } }
+                AddWeaponSpecial(item,options[trkIdx]["HighHitCommonWeapon"].includeSpecial)
+                AddWeaponAttributes(item,options[trkIdx]["HighHitCommonWeapon"].includeAttributes,options[trkIdx]["HighHitCommonWeapon"].includeHit)
+                ItemAppendVisibilityData( options[trkIdx]["HighHitCommonWeapon"], item, trkIdx )
             elseif options[trkIdx].ClairesDeal.enabled and clairesDealLoaded and lib_claires_deal.IsClairesDealItem(item) then
                 ItemAppendVisibilityData( options[trkIdx]["ClairesDeal"], item, trkIdx )
             elseif item.weapon.stats[6] < options[trkIdx].HighHitCommonWeapon.HitMin then
                 item.wName = { { item.name, nil } }
                 AddWeaponSpecial(item,options[trkIdx]["LowHitCommonWeapon"].includeSpecial)
-                AddWeaponAtrributes(item,options[trkIdx]["LowHitCommonWeapon"].includeAtrributes,options[trkIdx]["LowHitCommonWeapon"].includeHit)
+                AddWeaponAttributes(item,options[trkIdx]["LowHitCommonWeapon"].includeAttributes,options[trkIdx]["LowHitCommonWeapon"].includeHit)
                 ItemAppendVisibilityData( options[trkIdx]["LowHitCommonWeapon"], item, trkIdx )
-            end            
+            end
         end
     else
         item.wName = { { item.name, nil } }
-        AddWeaponAtrributes(item,options[trkIdx]["LowHitCommonWeapon"].includeAtrributes,options[trkIdx]["LowHitCommonWeapon"].includeHit)
+        AddWeaponAttributes(item,options[trkIdx]["LowHitCommonWeapon"].includeAttributes,options[trkIdx]["LowHitCommonWeapon"].includeHit)
         ItemAppendVisibilityData( options[trkIdx]["ESWeapon"], item, trkIdx )
     end
 end
@@ -1655,12 +1716,10 @@ local function ProcessFrame(item, floor, trkIdx)
         AddArmorStats(item, options[trkIdx]["RareArmor"].includeStats,options[trkIdx]["RareArmor"].includeSlots,options[trkIdx]["RareArmor"].highlightMaxStats)
         ItemAppendVisibilityData( options[trkIdx]["RareArmor"], item, trkIdx )
     elseif floor then
-        -- Show 4 socket armors
         if item.armor.slots == 4 then
             item.wName = { { item.name, nil } }
             AddArmorStats(item, options[trkIdx]["MaxSocketCommonArmor"].includeStats,options[trkIdx]["MaxSocketCommonArmor"].includeSlots,options[trkIdx]["MaxSocketCommonArmor"].highlightMaxStats)
             ItemAppendVisibilityData( options[trkIdx]["MaxSocketCommonArmor"], item, trkIdx )
-            -- Show Claire's Deal 5 items
         elseif options[trkIdx].ClairesDeal.enabled and clairesDealLoaded and lib_claires_deal.IsClairesDealItem(item) then
             ItemAppendVisibilityData( options[trkIdx]["ClairesDeal"], item, trkIdx )
         else
@@ -1679,7 +1738,6 @@ local function ProcessBarrier(item, floor, trkIdx)
         AddArmorStats(item, options[trkIdx]["RareBarrier"].includeStats,false,options[trkIdx]["RareBarrier"].highlightMaxStats)
         ItemAppendVisibilityData( options[trkIdx]["RareBarrier"], item, trkIdx )
     elseif floor then
-        -- Show Claire's Deal 5 items
         if options[trkIdx].ClairesDeal.enabled and clairesDealLoaded and lib_claires_deal.IsClairesDealItem(item) then
             ItemAppendVisibilityData( options[trkIdx]["ClairesDeal"], item, trkIdx )
         else
@@ -1696,7 +1754,6 @@ local function ProcessUnit(item, floor, trkIdx)
     if item_cfg ~= nil and item_cfg[1] ~= 0 then
         ItemAppendVisibilityData( options[trkIdx]["RareUnit"], item, trkIdx )
     elseif floor then
-        -- Show Claire's Deal 5 items
         if options[trkIdx].ClairesDeal.enabled and clairesDealLoaded and lib_claires_deal.IsClairesDealItem(item) then
             ItemAppendVisibilityData( options[trkIdx]["ClairesDeal"], item, trkIdx )
         else
@@ -1713,6 +1770,11 @@ local function ProcessTool(item, floor, trkIdx)
     local show_item = true
 
     if item.data[2] == 2 then
+        item.unusableByMe = isTechUnusable(item)
+        local known = playerSelf.techLevels[item.data[5]] or 0
+        if item.tool and item.tool.level and known >= item.tool.level then
+            item.techAlreadyKnown = true
+        end
         nameColor = lib_items_cfg.techName
     else
         nameColor = lib_items_cfg.toolName
@@ -1723,19 +1785,16 @@ local function ProcessTool(item, floor, trkIdx)
     end
 
     if floor then
-        -- Process Technique Disks
         if item.data[2] == 0x02 then
             item.wName = {
                 { item.name, nil },
                 { " Lv", nil },
                 { item.tool.level, nil },
             }
-            -- Is Reverser/Ryuker
             if item.data[5] == 0x11 then
                 ItemAppendVisibilityData( options[trkIdx]["TechReverser"], item, trkIdx )
             elseif item.data[5] == 0x0E then
                 ItemAppendVisibilityData( options[trkIdx]["TechRyuker"], item, trkIdx )
-                -- Is Good Anti?
             elseif item.data[5] == 0x10 then
                 if item.tool.level == 5 then
                     ItemAppendVisibilityData( options[trkIdx]["TechAnti5"], item, trkIdx )
@@ -1744,7 +1803,6 @@ local function ProcessTool(item, floor, trkIdx)
                 else
                     ItemAppendVisibilityData( options[trkIdx]["CommonTech"], item, trkIdx )
                 end
-            -- Is Good Megid/Grants
             elseif item.data[5] == 0x12 then
                 if item.tool.level >= options[trkIdx].TechMegid.MinLvl then
                     ItemAppendVisibilityData( options[trkIdx]["TechMegid"], item, trkIdx )
@@ -1757,7 +1815,6 @@ local function ProcessTool(item, floor, trkIdx)
                 else
                     ItemAppendVisibilityData( options[trkIdx]["CommonTech"], item, trkIdx )
                 end
-                -- Is good support spell
             elseif item.data[5] == 0x0A or item.data[5] == 0x0B or item.data[5] == 0x0C or item.data[5] == 0x0D or item.data[5] == 0x0F then
                 if item.tool.level >= options[trkIdx].TechSupportHigh.MinLvl then
                     ItemAppendVisibilityData( options[trkIdx]["TechSupportHigh"], item, trkIdx )
@@ -1768,7 +1825,6 @@ local function ProcessTool(item, floor, trkIdx)
                 else
                     ItemAppendVisibilityData( options[trkIdx]["CommonTech"], item, trkIdx )
                 end
-            -- Is a max tier tech?
             elseif item.tool.level >= options[trkIdx].TechAttackHigh.MinLvl then
                 ItemAppendVisibilityData( options[trkIdx]["TechAttackHigh"], item, trkIdx )
             elseif item.tool.level == 15 then
@@ -1779,11 +1835,9 @@ local function ProcessTool(item, floor, trkIdx)
                 ItemAppendVisibilityData( options[trkIdx]["CommonTech"], item, trkIdx )
             end
 
-        -- Hide Monomates, Dimates, Monofluids, Difluids, Antidotes, Antiparalysis, Telepipe, and Trap Visions
-        elseif  toolLookupTable[trkIdx][item.data[2]] ~= nil and 
-                toolLookupTable[trkIdx][item.data[2]][item.data[3]] ~= nil and 
+        elseif  toolLookupTable[trkIdx][item.data[2]] ~= nil and
+                toolLookupTable[trkIdx][item.data[2]][item.data[3]] ~= nil and
                 toolLookupTable[trkIdx][item.data[2]][item.data[3]][2] then
-            -- Show Claire's Deal 5 items
             if options[trkIdx].ClairesDeal.enabled and clairesDealLoaded and lib_claires_deal.IsClairesDealItem(item) then
                 ItemAppendVisibilityData( options[trkIdx]["ClairesDeal"], item, trkIdx )
             else
@@ -1845,15 +1899,13 @@ local function ProcessItem(item, floor, save, fromMagWindow, trkIdx)
     save = save or false
     fromMagWindow = fromMagWindow or false
 
-    -- Custom watch list takes priority for floor items
+    -- Custom watch list takes priority over the per-category rules.
     if floor == true and options[trkIdx].CustomWatch and options[trkIdx].CustomWatch.enabled and customWatchSet[item.hex] then
         item.wName = { { item.name, nil } }
         ItemAppendVisibilityData( options[trkIdx]["CustomWatch"], item, trkIdx )
         return
     end
 
-    -- Do not process disabled items when it's floor list
-    -- but only when item IDs are off
     if floor == true then
         local item_cfg = lib_items_list.t[item.hex]
         if item_cfg ~= nil and item_cfg[2] == false then
@@ -1894,6 +1946,14 @@ local lastFontScale = options["tracker1"].fontScale
 local cache_inventory = nil
 local windowTextSizes = {}
 
+-- Bundled state for present(); ConfigurationWindow.changed flips on every
+-- imgui interaction so SaveOptions is debounced via saveOptionsPendingTime
+-- to avoid rewriting the file every frame while a slider is held.
+local _perfState = {
+    saveOptionsPendingTime = nil,
+    windowTextSizesCount = 0,
+}
+
 local function sortByDistanceP(a,b)
     return a.curPlayerDistance < b.curPlayerDistance
 end
@@ -1911,14 +1971,15 @@ local function UpdateItemCache()
             end
         end
         table.sort(cache_floor,sortByDistanceP)
-        -- reassign a tracker window to its item
-        local trackerNum = 1
+
+        -- Reuse last frame's windowNameId per item id so imgui windows don't
+        -- get reassigned each frame (which makes the boxes flicker/hop).
         local prevTrackerWindowLookup = trackerWindowLookup
         trackerWindowLookup = {}
         local cache_floor_notracker = {}
         local usedWindowNameIdLookup = {}
         local windowNameIdCurIdx = 1
-        local function nextWindowNameId() -- find the next available windowNameId to use, which wasn't taken last game frame
+        local function nextWindowNameId()
             for i=windowNameIdCurIdx, #cache_floor, 1 do
                 if not usedWindowNameIdLookup[i] then
                     windowNameIdCurIdx = 1 + i
@@ -1927,7 +1988,7 @@ local function UpdateItemCache()
                 windowNameIdCurIdx = i
             end
         end
-        for i=1, #cache_floor, 1 do -- reassign windowNameIds from last game frame, which is needed to keep the boxes from looking "glichy" and "hopping around"
+        for i=1, #cache_floor, 1 do
             local item = cache_floor[i]
             local windowNameId = prevTrackerWindowLookup[item.id]
             if windowNameId then
@@ -1938,7 +1999,7 @@ local function UpdateItemCache()
                 table.insert(cache_floor_notracker, item)
             end
         end
-        for i=1, #cache_floor_notracker, 1 do -- assign a tracker window to an item that didn't have one previously
+        for i=1, #cache_floor_notracker, 1 do
             local item = cache_floor_notracker[i]
             local windowNameId = nextWindowNameId()
             if windowNameId then
@@ -2021,7 +2082,6 @@ local function getWText(wText,Default)
     end
 end
 
--- Builds the wText array (name + distance + debug) shared by both layouts.
 local function buildItemTextC(item, trkIdx, curCount)
     local textC = {{"",nil}}
     local cateTabl = item.cate
@@ -2064,10 +2124,10 @@ local function buildItemTextC(item, trkIdx, curCount)
         if type(entry) == "table" then
             dbgStr = string.format("{%X race=%04X atp=%d/%d ata=%d/%d mst=%d/%d p=%d}",
                 item.hex or 0, entry.race,
-                playerSelfATP, entry.atpReq,
-                playerSelfATA, entry.ataReq,
-                playerSelfMST, entry.mstReq,
-                playerSelfClass or -1)
+                playerSelf.atp, entry.atpReq,
+                playerSelf.ata, entry.ataReq,
+                playerSelf.mst, entry.mstReq,
+                playerSelf.class or -1)
         else
             dbgStr = string.format("{%X}", item.hex or 0)
         end
@@ -2081,7 +2141,6 @@ local function buildItemTextC(item, trkIdx, curCount)
     return textC
 end
 
--- Like PrintWText but left-aligned at startX instead of centered.
 local function PrintWTextLeft(wText, startX)
     if not wText or #wText == 0 then return end
     local rows = { {} }
@@ -2110,11 +2169,56 @@ local function PrintWTextLeft(wText, startX)
     end
 end
 
+local function _stripLeadingNewlineCompact(segs)
+    if segs[1] and segs[1][3] then
+        local s = segs[1]
+        segs[1] = {s[1], s[2], nil, s[4]}
+    end
+end
+
+-- Cleared and refilled per call. Safe because this isn't recursive.
+local _compactScratch = {
+    segName   = {},
+    segStack  = {},
+    segStats  = {},
+    segItem   = {},
+    segInv    = {},
+    segExtra  = {},
+    rowCounts = {},
+    buf       = {},
+    sep       = {" ", nil},
+}
+
+local function _segsWCompact(segs)
+    local n = segs and #segs or 0
+    if n == 0 then return 0 end
+    local buf = _compactScratch.buf
+    for i = 1, n do buf[i] = segs[i][1] end
+    for i = n + 1, #buf do buf[i] = nil end
+    return imgui.CalcTextSize(table.concat(buf, "", 1, n)) or 0
+end
+
+local function _renderInlineSegsCompact(segs)
+    for i = 1, #segs do
+        if i > 1 then imgui.SameLine(0, 0) end
+        local seg = segs[i]
+        local clr = seg[2]
+        if clr then
+            imgui.TextColored(clr[2], clr[3], clr[4], clr[1], seg[1])
+        else
+            imgui.Text(seg[1])
+        end
+    end
+end
+
+local function _clearArr(t)
+    for i = #t, 1, -1 do t[i] = nil end
+end
+
 local function PresentBoxTrackerCompact(item, trkIdx, curCount)
     if not item.cate then return end
     local cateTabl = item.cate
 
-    -- Per-category scale override replaces the tracker's compactWindowScale.
     local scale
     if cateTabl.useCustomCompactScale and cateTabl.customCompactScale then
         scale = cateTabl.customCompactScale
@@ -2125,7 +2229,6 @@ local function PresentBoxTrackerCompact(item, trkIdx, curCount)
     local boxX = math.floor(12 * scale)
     local boxY = math.floor(12 * scale)
 
-    -- Count right-column rows: name (always), stats (weapons/armor), counts.
     local _hasStats, _hasCounts = false, false
     for _, _seg in ipairs(item.wName or {}) do
         local k = _seg[4]
@@ -2136,11 +2239,10 @@ local function PresentBoxTrackerCompact(item, trkIdx, curCount)
     local _rightRows = 1
     if _hasStats  then _rightRows = _rightRows + 1 end
     if _hasCounts then _rightRows = _rightRows + 1 end
-    local _wX, _lineH0 = imgui.CalcTextSize("X")
-    if not _lineH0 or _lineH0 <= 0 then _lineH0 = 14 end
-    local iconSize = math.floor(_lineH0 * math.max(_rightRows, 2))
+    local _wX, lineHeight = imgui.CalcTextSize("X")
+    if not lineHeight or lineHeight <= 0 then lineHeight = 14 end
+    local iconSize = math.floor(lineHeight * math.max(_rightRows, 2))
 
-    -- Window outline. 0 hides it.
     local borderT = cateTabl.compactBorderThickness or 1
     if borderT < 0 then borderT = 0 end
     if borderT > 0 then
@@ -2171,52 +2273,31 @@ local function PresentBoxTrackerCompact(item, trkIdx, curCount)
 
     local textC = buildItemTextC(item, trkIdx, curCount)
 
-    -- Bucket segments by kind tag.
-    local segName  = {}
-    local segStack = {}
-    local segStats = {}
-    local segItem  = {}
-    local segInv   = {}
-    local segExtra = {}
-    for i=1, #textC, 1 do
+    local cs = _compactScratch
+    local segName, segStack, segStats = cs.segName, cs.segStack, cs.segStats
+    local segItem, segInv,   segExtra = cs.segItem, cs.segInv,   cs.segExtra
+    _clearArr(segName);  _clearArr(segStack); _clearArr(segStats)
+    _clearArr(segItem);  _clearArr(segInv);   _clearArr(segExtra)
+    for i = 1, #textC do
         local seg = textC[i]
         local kind = seg[4]
         if kind == "stackCount" then
-            table.insert(segStack, seg)
+            segStack[#segStack+1] = seg
         elseif kind == "weaponStats" then
-            table.insert(segStats, seg)
+            segStats[#segStats+1] = seg
         elseif kind == "itemCount" or kind == "indicator" then
-            table.insert(segItem, seg)
+            segItem[#segItem+1] = seg
         elseif kind == "invCount" or kind == "invFull" then
-            table.insert(segInv, seg)
+            segInv[#segInv+1] = seg
         elseif kind == "distance" or kind == "debug" then
-            table.insert(segExtra, seg)
+            segExtra[#segExtra+1] = seg
         else
-            table.insert(segName, seg)
+            segName[#segName+1] = seg
         end
     end
 
-    -- Row 1: name with stack count appended. wName's "Nx " is reshaped to " Nx".
-    local row1 = {}
-    for _, s in ipairs(segName)  do table.insert(row1, s) end
-    for _, s in ipairs(segStack) do
-        local text = s[1] or ""
-        if string.sub(text, -1, -1) == " " then text = string.sub(text, 1, -2) end
-        if string.sub(text,  1,  1) ~= " " then text = " " .. text end
-        table.insert(row1, {text, s[2], nil, s[4]})
-    end
-
-    -- Bottom row: distance + debug.
     local row3 = segExtra
-
-    local function stripLeadingNewline(segs)
-        if segs[1] and segs[1][3] then
-            local s = segs[1]
-            segs[1] = {s[1], s[2], nil, s[4]}
-        end
-    end
-    stripLeadingNewline(row1)
-    stripLeadingNewline(row3)
+    _stripLeadingNewlineCompact(row3)
 
     if cateTabl.enabled and not item.screenShouldNotShow then
         imgui.SetCursorPosX(boxX)
@@ -2252,9 +2333,8 @@ local function PresentBoxTrackerCompact(item, trkIdx, curCount)
         end
 
         local imgHandle, iw, ih
-        if cateTabl.showImage then
-            local path = getImagePathForCate(cateTabl, trkIdx, item)
-            if path then imgHandle, iw, ih = image.Handle(path) end
+        if cateTabl.showImage and item.imagePath then
+            imgHandle, iw, ih = image.Handle(item.imagePath)
         end
 
         if imgHandle and iw > 0 and ih > 0 then
@@ -2267,13 +2347,24 @@ local function PresentBoxTrackerCompact(item, trkIdx, curCount)
             imgui.Image(imgHandle, drawW, drawH, 0, 0, 1, 1, tr, tg, tb, ta)
         end
 
-        if options[trkIdx].markUnusableWeapons and item.unusableByMe then
-            local xR, xG, xB
+        local isTech = item.data and item.data[1] == 0x03 and item.data[2] == 0x02
+        local xEnabled
+        if isTech then
+            xEnabled = options[trkIdx].markUnusableTechs
+        else
+            xEnabled = options[trkIdx].markUnusableWeapons
+        end
+        local xR, xG, xB
+        if xEnabled and item.unusableByMe then
             if item.unusableByMe == "stat" then
                 xR, xG, xB = 0xA0, 0xA0, 0xA0
             else
                 xR, xG, xB = 0xFF, 0x30, 0x30
             end
+        elseif isTech and item.techAlreadyKnown and options[trkIdx].markRedundantTechs then
+            xR, xG, xB = 0x60, 0xA0, 0xE0  -- faded blue: already-known disk
+        end
+        if xR then
             local xCol = bit.bor(
                 bit.lshift(0xFF, 24),
                 bit.lshift(xB, 16),
@@ -2284,55 +2375,49 @@ local function PresentBoxTrackerCompact(item, trkIdx, curCount)
             imgui.AddLine(sx, sy, sx + iconSize, sy + iconSize, xCol, xThick)
             imgui.AddLine(sx + iconSize, sy, sx, sy + iconSize, xCol, xThick)
         end
+
+        if isTech and item.techAlreadyKnown and options[trkIdx].showKnownTechIndicator then
+            local cmCol = bit.bor(
+                bit.lshift(0xFF, 24),
+                bit.lshift(0x40, 16),
+                bit.lshift(0xC0, 8),
+                0x40
+            )
+            local cmSize = math.max(8, math.floor(iconSize * 0.28))
+            local cmThick = math.max(2, math.floor(iconSize * 0.10))
+            local cmX0 = sx + iconSize - cmSize - 2
+            local cmY0 = sy + iconSize - cmSize - 2
+            imgui.AddLine(cmX0,                  cmY0 + cmSize * 0.50, cmX0 + cmSize * 0.35, cmY0 + cmSize * 0.90, cmCol, cmThick)
+            imgui.AddLine(cmX0 + cmSize * 0.35,  cmY0 + cmSize * 0.90, cmX0 + cmSize,        cmY0 + cmSize * 0.05, cmCol, cmThick)
+        end
     end
 
     local textStartX = boxX + iconSize + gap
-    local _wX, lineHeight = imgui.CalcTextSize("X")
-    if not lineHeight or lineHeight <= 0 then lineHeight = 14 end
-
-    local function segsW(segs)
-        if not segs or #segs == 0 then return 0 end
-        local s = ""
-        for _, seg in ipairs(segs) do s = s .. seg[1] end
-        return imgui.CalcTextSize(s) or 0
-    end
-
-    local function renderInlineSegs(segs)
-        for i, seg in ipairs(segs) do
-            if i > 1 then imgui.SameLine(0, 0) end
-            local clr = seg[2]
-            if clr then
-                imgui.TextColored(clr[2], clr[3], clr[4], clr[1], seg[1])
-            else
-                imgui.Text(seg[1])
-            end
-        end
-    end
 
     local nameRowY   = boxY
     local statsRowY  = boxY + lineHeight
     local countsRowY = boxY + iconSize - lineHeight
 
-    local rowCounts = {}
+    local rowCounts = cs.rowCounts
+    _clearArr(rowCounts)
     if #segItem > 0 then
-        for _, s in ipairs(segItem) do table.insert(rowCounts, s) end
+        for i = 1, #segItem do rowCounts[#rowCounts+1] = segItem[i] end
     end
     if #segInv > 0 then
-        if #rowCounts > 0 then table.insert(rowCounts, {" ", nil}) end
-        for _, s in ipairs(segInv) do table.insert(rowCounts, s) end
+        if #rowCounts > 0 then rowCounts[#rowCounts+1] = cs.sep end
+        for i = 1, #segInv do rowCounts[#rowCounts+1] = segInv[i] end
     end
-    stripLeadingNewline(rowCounts)
+    _stripLeadingNewlineCompact(rowCounts)
     local rowStats = segStats
 
-    -- Icon-only popup when showName is off.
     if cateTabl.showName then
-        local nameW  = segsW(segName)
-        local stackW = segsW(segStack)
-        local countsW = segsW(rowCounts)
+        local nameW  = _segsWCompact(segName)
+        local stackW = _segsWCompact(segStack)
+        local countsW = _segsWCompact(rowCounts)
         if #segName > 0 then
             imgui.SetCursorPosX(textStartX)
             imgui.SetCursorPosY(nameRowY)
-            renderInlineSegs(segName)
+            _renderInlineSegsCompact(segName)
         end
         if #segStack > 0 then
             local minStackX = textStartX + nameW + 6
@@ -2341,7 +2426,7 @@ local function PresentBoxTrackerCompact(item, trkIdx, curCount)
             if stackX < minStackX then stackX = minStackX end
             imgui.SetCursorPosX(stackX)
             imgui.SetCursorPosY(nameRowY)
-            renderInlineSegs(segStack)
+            _renderInlineSegsCompact(segStack)
         end
 
         if #rowStats > 0 then
@@ -2363,19 +2448,22 @@ local function PresentBoxTrackerCompact(item, trkIdx, curCount)
         local bottomY     = math.max(iconBottom, rightBottom) + 2
         local windowW     = imgui.GetWindowWidth()
         local availW      = windowW - 4
-        local row3W       = segsW(row3)
+        local row3W       = _segsWCompact(row3)
 
         imgui.SetCursorPosY(bottomY)
         if row3W <= availW then
             local centerX = (windowW - row3W) * 0.5
             if centerX < boxX then centerX = boxX end
             imgui.SetCursorPosX(centerX)
-            renderInlineSegs(row3)
+            _renderInlineSegsCompact(row3)
         else
             imgui.SetCursorPosX(boxX)
             imgui.PushTextWrapPos(windowW - 2)
-            local full = ""
-            for _, seg in ipairs(row3) do full = full .. seg[1] end
+            local buf = cs.buf
+            local n = #row3
+            for i = 1, n do buf[i] = row3[i][1] end
+            for i = n + 1, #buf do buf[i] = nil end
+            local full = table.concat(buf, "", 1, n)
             local clr = (row3[1] and row3[1][2]) or {1.0, 0.6, 0.6, 0.6}
             imgui.TextColored(clr[2], clr[3], clr[4], clr[1], full)
             imgui.PopTextWrapPos()
@@ -2436,10 +2524,10 @@ local function PresentBoxTracker(item,trkIdx,curCount)
             if type(entry) == "table" then
                 dbgStr = string.format("{%X race=%04X atp=%d/%d ata=%d/%d mst=%d/%d p=%d}",
                     item.hex or 0, entry.race,
-                    playerSelfATP, entry.atpReq,
-                    playerSelfATA, entry.ataReq,
-                    playerSelfMST, entry.mstReq,
-                    playerSelfClass or -1)
+                    playerSelf.atp, entry.atpReq,
+                    playerSelf.ata, entry.ataReq,
+                    playerSelf.mst, entry.mstReq,
+                    playerSelf.class or -1)
             else
                 dbgStr = string.format("{%X}", item.hex or 0)
             end
@@ -2495,9 +2583,8 @@ local function PresentBoxTracker(item,trkIdx,curCount)
             end
 
             local imgHandle, iw, ih
-            if cateTabl.showImage then
-                local path = getImagePathForCate(cateTabl, trkIdx, item)
-                if path then imgHandle, iw, ih = image.Handle(path) end
+            if cateTabl.showImage and item.imagePath then
+                imgHandle, iw, ih = image.Handle(item.imagePath)
             end
 
             if imgHandle and iw > 0 and ih > 0 then
@@ -2510,16 +2597,27 @@ local function PresentBoxTracker(item,trkIdx,curCount)
                 imgui.Image(imgHandle, drawW, drawH, 0, 0, 1, 1, tr, tg, tb, ta)
             end
 
-            if options[trkIdx].markUnusableWeapons and item.unusableByMe then
-                imgui.SetCursorPosX(boxX)
-                imgui.SetCursorPosY(boxY)
-                local xsx, xsy = imgui.GetCursorScreenPos()
-                local xR, xG, xB
+            local isTech = item.data and item.data[1] == 0x03 and item.data[2] == 0x02
+            local xEnabled
+            if isTech then
+                xEnabled = options[trkIdx].markUnusableTechs
+            else
+                xEnabled = options[trkIdx].markUnusableWeapons
+            end
+            local xR, xG, xB
+            if xEnabled and item.unusableByMe then
                 if item.unusableByMe == "stat" then
                     xR, xG, xB = 0xA0, 0xA0, 0xA0
                 else
                     xR, xG, xB = 0xFF, 0x30, 0x30
                 end
+            elseif isTech and item.techAlreadyKnown and options[trkIdx].markRedundantTechs then
+                xR, xG, xB = 0x60, 0xA0, 0xE0  -- faded blue: already-known disk
+            end
+            if xR then
+                imgui.SetCursorPosX(boxX)
+                imgui.SetCursorPosY(boxY)
+                local xsx, xsy = imgui.GetCursorScreenPos()
                 local xCol = bit.bor(
                     bit.lshift(0xFF, 24),
                     bit.lshift(xB, 16),
@@ -2529,6 +2627,25 @@ local function PresentBoxTracker(item,trkIdx,curCount)
                 local xThick = math.max(2, math.floor(math.min(sizeX, sizeY) * 0.08))
                 imgui.AddLine(xsx, xsy, xsx + sizeX, xsy + sizeY, xCol, xThick)
                 imgui.AddLine(xsx + sizeX, xsy, xsx, xsy + sizeY, xCol, xThick)
+            end
+
+            if isTech and item.techAlreadyKnown and options[trkIdx].showKnownTechIndicator then
+                imgui.SetCursorPosX(boxX)
+                imgui.SetCursorPosY(boxY)
+                local xsx, xsy = imgui.GetCursorScreenPos()
+                local cmCol = bit.bor(
+                    bit.lshift(0xFF, 24),
+                    bit.lshift(0x40, 16),
+                    bit.lshift(0xC0, 8),
+                    0x40
+                )
+                local minSide = math.min(sizeX, sizeY)
+                local cmSize = math.max(8, math.floor(minSide * 0.28))
+                local cmThick = math.max(2, math.floor(minSide * 0.10))
+                local cmX0 = xsx + sizeX - cmSize - 2
+                local cmY0 = xsy + sizeY - cmSize - 2
+                imgui.AddLine(cmX0,                  cmY0 + cmSize * 0.50, cmX0 + cmSize * 0.35, cmY0 + cmSize * 0.90, cmCol, cmThick)
+                imgui.AddLine(cmX0 + cmSize * 0.35,  cmY0 + cmSize * 0.90, cmX0 + cmSize,        cmY0 + cmSize * 0.05, cmCol, cmThick)
             end
         end
     end
@@ -2564,35 +2681,36 @@ local function calcScreenResolutions(trkIdx, forced)
 end
 local function calcScreenFoV(trkIdx, forced)
 
-    if not aspectRatio or not cameraZoom or not resolutionHeight.val then
-        cameraZoom        = getCameraZoom()
+    if not aspectRatio or not cameraState.zoom or not resolutionHeight.val then
+        cameraState.zoom  = getCameraZoom()
         calcScreenResolutions(trkIdx, forced)
     end
 
-    if forced or cameraZoom ~= lastCameraZoom or cameraZoom == nil then
+    local cz = cameraState.zoom
+    if forced or cz ~= lastCameraZoom or cz == nil then
         if options.customFoVEnabled then
-            if     cameraZoom == 0 then
+            if     cz == 0 then
                 screenFov = math.rad( options.customFoV0 )
-            elseif cameraZoom == 1 then
+            elseif cz == 1 then
                 screenFov = math.rad( options.customFoV1 )
-            elseif cameraZoom == 2 then
+            elseif cz == 2 then
                 screenFov = math.rad( options.customFoV2 )
-            elseif cameraZoom == 3 then
+            elseif cz == 3 then
                 screenFov = math.rad( options.customFoV3 )
-            elseif cameraZoom == 4 then
+            elseif cz == 4 then
                 screenFov = math.rad( options.customFoV4 )
             else
-                screenFov = 69 -- a good guess
+                screenFov = 69
             end
         else
-            screenFov = math.rad( 
-                math.deg( 
-                    2*math.atan(0.56470588 * aspectRatio) -- 0.56470588 is 768/1360
-                ) - (cameraZoom-1) * 0.600 - clampVal(cameraZoom,0,1) * 0.300 -- the constant here should work for most to all aspect ratios between 1.25 to 1.77, gud enuff.
-            ) 
+            screenFov = math.rad(
+                math.deg(
+                    2*math.atan(0.56470588 * aspectRatio) -- 768/1360
+                ) - (cz-1) * 0.600 - clampVal(cz,0,1) * 0.300 -- empirical, covers ARs 1.25-1.77
+            )
         end
         determinantScr = aspectRatio * 3 * resolutionHeight.val / ( 6 * math.tan( 0.5 * screenFov ) )
-        lastCameraZoom = cameraZoom
+        lastCameraZoom = cz
     end
 end
 
@@ -2605,16 +2723,13 @@ local function WillRenderContent(item, trkIdx, curCount)
         return true
     end
 
-    -- Image counts as a "render this" condition: with Show Box off, the
-    -- image alone should still keep the popup visible.
-    if cateTabl.enabled and not item.screenShouldNotShow and cateTabl.showImage then
-        local path = getImagePathForCate(cateTabl, trkIdx, item)
-        if path and image.Handle(path) then return true end
+    if cateTabl.enabled and not item.screenShouldNotShow and cateTabl.showImage and item.imagePathOk then
+        return true
     end
 
-    -- Indicators (max stack / inv full / inv counter) only force a render
-    -- when the item hasn't been filtered out by "Only Show When ..." rules;
-    -- otherwise the popup would still pop up purely to display its label.
+    -- Indicators only force a render if the item wasn't already filtered out
+    -- by "Only Show When..." rules; otherwise the popup appears just to show
+    -- a label for an item the user said to hide.
     if not item.screenShouldNotShow and (item.atMaxStack or item.atInvFull or item.hasInvCounter) then return true end
 
     if not item.screenShouldNotShow and options[trkIdx].showDistance and item.curPlayerDistance then return true end
@@ -2641,14 +2756,15 @@ end
 local function present()
     local trkIdx = "tracker1"
 
-    -- If the addon has never been used, open the config window
-    -- and disable the config window setting
+    -- Open the config window once on first ever run.
     if options.configurationEnableWindow then
         ConfigurationWindow.open = true
         options.configurationEnableWindow = false
     end
     ConfigurationWindow.Update()
     HexDumpWindowUpdate()
+
+    current_time = pso.get_tick_count()
 
     if ConfigurationWindow.changed then
         ConfigurationWindow.changed = false
@@ -2665,50 +2781,59 @@ local function present()
         if lastFontScale ~= curFontScale then
             lastFontScale = curFontScale
             windowTextSizes = {}
+            _perfState.windowTextSizesCount = 0
         end
         updateToolLookupTable()
         updateMusicDiskLookupTable()
         calcScreenResolutions(trkIdx, true)
         calcScreenFoV(trkIdx, true)
         customWatchSet = ParseCustomWatchList(options[trkIdx].customWatchListIds)
-        SaveOptions(options)
-        -- Update the delay too
+        _perfState.saveOptionsPendingTime = current_time + 500 -- ms debounce
         update_delay = options.updateThrottle
     end
 
-    -- Global enable here to let the configuration window work
+    -- Done above the enable=false early-return so a "disable" toggle persists.
+    if _perfState.saveOptionsPendingTime and current_time >= _perfState.saveOptionsPendingTime then
+        _perfState.saveOptionsPendingTime = nil
+        SaveOptions(options)
+    end
+
     if options.enable == false then
         return
     end
 
-    --- Update timer for update throttle
-    current_time = pso.get_tick_count()
--- --needed?
--- local myFloor = lib_characters.GetCurrentFloorSelf()
--- --needed?
-    cameraZoom        = getCameraZoom()
+    cameraState.zoom  = getCameraZoom()
     calcScreenResolutions(trkIdx)
     calcScreenFoV(trkIdx)
-    playerSelfAddr    = lib_characters.GetSelf()
-    -- Lobby / login: address is 0 and player reads would crash.
-    if playerSelfAddr and playerSelfAddr ~= 0 then
-        playerSelfClass   = lib_characters.GetPlayerClass(playerSelfAddr)
-        playerSelfATP     = lib_characters.GetPlayerMaxATP(playerSelfAddr, 0)
-        playerSelfATA     = lib_characters.GetPlayerATA(playerSelfAddr)
-        playerSelfMST     = lib_characters.GetPlayerMST(playerSelfAddr)
+    local pAddr = lib_characters.GetSelf()
+    playerSelf.addr = pAddr
+    -- pAddr == 0 in lobby/login; the GetPlayer* reads would crash.
+    if pAddr and pAddr ~= 0 then
+        playerSelf.class = lib_characters.GetPlayerClass(pAddr)
+        playerSelf.atp   = lib_characters.GetPlayerMaxATP(pAddr, 0)
+        playerSelf.ata   = lib_characters.GetPlayerATA(pAddr)
+        playerSelf.mst   = lib_characters.GetPlayerMST(pAddr)
+        -- Learned tech levels: 19 bytes at +0x4A8. Byte value -1 = unlearned, else 0-indexed level.
+        for techID = 0, 18 do
+            local raw = pso.read_i8(pAddr + 0x4A8 + techID)
+            playerSelf.techLevels[techID] = (raw < 0) and 0 or (raw + 1)
+        end
     else
-        playerSelfClass = nil
-        playerSelfATP   = 0
-        playerSelfATA   = 0
-        playerSelfMST   = 0
+        playerSelf.class = nil
+        playerSelf.atp   = 0
+        playerSelf.ata   = 0
+        playerSelf.mst   = 0
+        for techID = 0, 18 do
+            playerSelf.techLevels[techID] = 0
+        end
     end
-    playerSelfCoords  = GetPlayerCoordinates(playerSelfAddr)
-    playerSelfDirs    = GetPlayerDirection(playerSelfAddr)
-    pCoord            = mgl.vec3(playerSelfCoords.x,playerSelfCoords.y,playerSelfCoords.z)
-    cameraCoords      = getCameraCoordinates()
-    cameraDirs        = getCameraDirection()
-    eyeWorld          = mgl.vec3(cameraCoords.x, cameraCoords.y, cameraCoords.z)
-    eyeDir            = mgl.vec3(  cameraDirs.x,   cameraDirs.y,   cameraDirs.z)
+    playerSelf.coords = GetPlayerCoordinates(pAddr)
+    playerSelf.dirs   = GetPlayerDirection(pAddr)
+    cameraState.coords = getCameraCoordinates()
+    cameraState.dirs   = getCameraDirection()
+    local cc, cd = cameraState.coords, cameraState.dirs
+    eyeWorld.x, eyeWorld.y, eyeWorld.z = cc.x, cc.y, cc.z
+    eyeDir.x,   eyeDir.y,   eyeDir.z   = cd.x, cd.y, cd.z
 
     UpdateItemCache()
     UpdateInventoryCache()
@@ -2732,7 +2857,8 @@ local function present()
             and (options[trkIdx].HideWhenSymbolChat == false or lib_menu.IsSymbolChatOpen() == false)
             and (options[trkIdx].HideWhenMenuUnavailable == false or lib_menu.IsMenuUnavailable() == false)
         then
-            if cache_floor[itemIdx].screenShow and WillRenderContent(cache_floor[itemIdx], trkIdx, itemIdx) then
+            local _hideKnown = options[trkIdx].hideKnownTechs and cache_floor[itemIdx].techAlreadyKnown
+            if cache_floor[itemIdx].screenShow and not _hideKnown and WillRenderContent(cache_floor[itemIdx], trkIdx, itemIdx) then
                 trackerIdx = trackerIdx + 1
 
                 if options[trkIdx].customTrackerColorEnable == true then
@@ -2750,14 +2876,10 @@ local function present()
 
                 local textC = getWText(cache_floor[itemIdx].wName, cache_floor[itemIdx].name)
                 local textP = getUnWText(textC)
-                -- Compact layout overrides the font scale with its own
-                -- window-scale setting so the whole popup scales as a unit.
-                -- The cache key includes the active scale so different
-                -- scales don't share stale measurements.
+                -- Cache key includes activeScale so different scales don't
+                -- share stale measurements.
                 local activeScale = 1.0
                 if options[trkIdx].compactLayout then
-                    -- Per-item override wins over the tracker's global
-                    -- compactWindowScale (matches the renderer's logic).
                     local _itemCate = cache_floor[itemIdx].cate
                     if _itemCate and _itemCate.useCustomCompactScale and _itemCate.customCompactScale then
                         activeScale = _itemCate.customCompactScale
@@ -2768,11 +2890,14 @@ local function present()
                     activeScale = options[trkIdx].fontScale
                 end
                 local sizeKey = textP .. "@" .. tostring(activeScale)
-                -- Compact mode always uses FontDummy to match the inner scale.
                 local needsFontDummy = options[trkIdx].compactLayout or activeScale ~= 1.0
                 if needsFontDummy then
                     local tx, ty
                     if not windowTextSizes[sizeKey] then
+                        if _perfState.windowTextSizesCount >= 1024 then
+                            windowTextSizes = {}
+                            _perfState.windowTextSizesCount = 0
+                        end
                         if imgui.Begin( "##DropBox Tracker - FontDummy",
                             nil, { "NoTitleBar", "NoResize", "NoMove", "NoInputs", "NoSavedSettings" } )
                         then
@@ -2782,16 +2907,22 @@ local function present()
                                 x = tx,
                                 y = ty,
                             }
+                            _perfState.windowTextSizesCount = _perfState.windowTextSizesCount + 1
                         end
                         imgui.End()
                     end
                 else
                     if not windowTextSizes[sizeKey] then
+                        if _perfState.windowTextSizesCount >= 1024 then
+                            windowTextSizes = {}
+                            _perfState.windowTextSizesCount = 0
+                        end
                         local tx, ty = imgui.CalcTextSize(textP)
                         windowTextSizes[sizeKey] = {
                             x = tx,
                             y = ty,
                         }
+                        _perfState.windowTextSizesCount = _perfState.windowTextSizesCount + 1
                     end
                 end
 
@@ -2840,12 +2971,7 @@ local function present()
                 end
                 if options[trkIdx].H < 1 or options[trkIdx].AlwaysAutoResize then
                     if options[trkIdx].compactLayout then
-                        local lineCount = 1
-                        for _ in string.gmatch(textP, "\n") do
-                            lineCount = lineCount + 1
-                        end
-                        local lineH = (lineCount > 0) and (ty / lineCount) or 14
-
+                        local lineH = _outerLineH
                         local rightColH = lineH * _outerRightRows
                         local boxYouter = math.floor(12 * activeScale)
                         local _outerCateH = cache_floor[itemIdx].cate
@@ -2879,7 +3005,7 @@ local function present()
 
                 end
 
-                local ps =  lib_helpers.GetPosBySizeAndAnchor( sx, sy, wx, wy, 5 ) -- 5 is "center" window anchor
+                local ps =  lib_helpers.GetPosBySizeAndAnchor( sx, sy, wx, wy, 5 ) -- 5 == center anchor
                 imgui.SetNextWindowPos( ps[1], ps[2], "Always" )
                 imgui.SetNextWindowSize( wx, wy, "Always" )
 
@@ -2887,7 +3013,7 @@ local function present()
                     imgui.PushStyleVar_2("WindowPadding", 0, 0)
                 end
 
-                if not cache_floor[itemIdx].windowNameId then -- safeguard against bad code to prevent crashing. should be fixed before this, but just incase.
+                if not cache_floor[itemIdx].windowNameId then -- defensive fallback; UpdateItemCache should always assign one
                     cache_floor[itemIdx].windowNameId = cache_floor[itemIdx].id
                 end
                 local windowName = "DropBox Tracker - Hud" .. cache_floor[itemIdx].windowNameId
@@ -2896,8 +3022,6 @@ local function present()
                     nil, thisWindowParams )
                 then
                     if options[trkIdx].compactLayout then
-                        -- Per-item scale override wins; otherwise the
-                        -- per-tracker compactWindowScale.
                         imgui.SetWindowFontScale(activeScale)
                     elseif options[trkIdx].customFontScaleEnabled then
                         imgui.SetWindowFontScale(options[trkIdx].fontScale)
@@ -2939,7 +3063,6 @@ local function present()
     firstLoad = false
 end
 
--- Returns the raw item struct address for a 1-indexed inventory slot, or 0.
 local function getInventoryItemAddr(slotIndex)
     local _PlayerIndex = 0x00A9C4F4
     local _PlayerArray = 0x00A94254

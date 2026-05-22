@@ -210,7 +210,6 @@ local function ConfigurationWindow(configuration)
                 imgui.SetCursorPosX(cursorX+sizeX)
                 imgui.SetCursorPosY(cursorY)
                 imgui.PopStyleColor()
-                --imgui.SameLine(0, 4)
             else
                 imgui.SetCursorPosX( imgui.GetCursorPosX()+sizeX )
             end
@@ -251,9 +250,9 @@ local function ConfigurationWindow(configuration)
                     imgui.PopItemWidth()
                 end
                 if Additional ~= nil then
-                    if Additional.includeAtrributes then
-                        if imgui.Checkbox("Show Attributes in Name", cateTabl.includeAtrributes) then
-                            cateTabl.includeAtrributes = not cateTabl.includeAtrributes
+                    if Additional.includeAttributes then
+                        if imgui.Checkbox("Show Attributes in Name", cateTabl.includeAttributes) then
+                            cateTabl.includeAttributes = not cateTabl.includeAttributes
                             this.changed = true
                         end
                     end
@@ -330,7 +329,6 @@ local function ConfigurationWindow(configuration)
                     cateTabl.customBorderColor = PresentColorEditor("Border Color", 0xFFFF6900, cateTabl.customBorderColor)
                 end
 
-                -- Image color override, independent of the box border color.
                 if cateTabl.useCustomImageColor == nil then cateTabl.useCustomImageColor = false end
                 if cateTabl.customImageColor  == nil then cateTabl.customImageColor  = 0xFFFFFFFF end
                 if imgui.Checkbox("Custom Image Color", cateTabl.useCustomImageColor) then
@@ -344,7 +342,6 @@ local function ConfigurationWindow(configuration)
                     cateTabl.customImageColor = PresentColorEditor("Image Color", 0xFFFFFFFF, cateTabl.customImageColor)
                 end
 
-                -- Per-category override of the tracker's compactWindowScale.
                 if cateTabl.useCustomCompactScale == nil then cateTabl.useCustomCompactScale = false end
                 if cateTabl.customCompactScale    == nil then cateTabl.customCompactScale    = 1.0 end
                 if imgui.Checkbox("Custom Compact Scale", cateTabl.useCustomCompactScale) then
@@ -367,7 +364,6 @@ local function ConfigurationWindow(configuration)
                     if _changedSc then this.changed = true end
                 end
 
-                -- Compact window outline thickness for this category. 0 hides it.
                 if cateTabl.compactBorderThickness == nil then cateTabl.compactBorderThickness = 1 end
                 imgui.PushItemWidth(140)
                 local _changedBt
@@ -492,7 +488,6 @@ local function ConfigurationWindow(configuration)
 
                 imgui.SetCursorPosX(curX + 20)
                 imgui.PushItemWidth(200)
-                --success, _configuration.customFoV0 = imgui.SliderFloat("Field of View @ Zoom 0 (Degrees)", _configuration.customFoV0, _configuration.customFoV4, 120)
                 success, _configuration.customFoV0 = imgui.DragFloat("Field of View @ Zoom 0 (Degrees)", _configuration.customFoV0, 0.005, _configuration.customFoV4, 120)
                 imgui.PopItemWidth()
                 if success then
@@ -663,6 +658,38 @@ local function ConfigurationWindow(configuration)
                         imgui.SetTooltip("Reads each weapon's class restrictions from PMT and draws a red X over\nany weapon your current character cannot equip.")
                     end
 
+                    if imgui.Checkbox("Mark Tech Disks I Can't Learn With a Red X", _configuration[trkIdx].markUnusableTechs) then
+                        _configuration[trkIdx].markUnusableTechs = not _configuration[trkIdx].markUnusableTechs
+                        this.changed = true
+                    end
+                    if imgui.IsItemHovered() then
+                        imgui.SetTooltip("Marks tech disks you can't currently learn:\n  Red X  - class is forbidden, or disk level > class cap\n           (e.g. HUmar with Foie Lv 16+). Permanent.\n  Grey X - class can learn it but your MST is too low.\n           Unlocks as you raise MST.")
+                    end
+
+                    if imgui.Checkbox("Mark Tech Disks I Already Know With a Faded X", _configuration[trkIdx].markRedundantTechs) then
+                        _configuration[trkIdx].markRedundantTechs = not _configuration[trkIdx].markRedundantTechs
+                        this.changed = true
+                    end
+                    if imgui.IsItemHovered() then
+                        imgui.SetTooltip("Draws a faded blue X over tech disks at or below your\ncurrent learned level for that technique - learning them\nagain would do nothing.")
+                    end
+
+                    if imgui.Checkbox("Show a Checkmark on Tech Disks I Already Know", _configuration[trkIdx].showKnownTechIndicator) then
+                        _configuration[trkIdx].showKnownTechIndicator = not _configuration[trkIdx].showKnownTechIndicator
+                        this.changed = true
+                    end
+                    if imgui.IsItemHovered() then
+                        imgui.SetTooltip("Draws a small green checkmark in the corner of tech disks\nyou already know at this level or higher.")
+                    end
+
+                    if imgui.Checkbox("Hide Tech Disks I Already Know Entirely", _configuration[trkIdx].hideKnownTechs) then
+                        _configuration[trkIdx].hideKnownTechs = not _configuration[trkIdx].hideKnownTechs
+                        this.changed = true
+                    end
+                    if imgui.IsItemHovered() then
+                        imgui.SetTooltip("Don't render the popup at all for tech disks at or below\nyour current learned level. Overrides the X / checkmark\noptions above for those disks.")
+                    end
+
                     if imgui.Checkbox("Compact Layout (icon left, text right)", _configuration[trkIdx].compactLayout) then
                         _configuration[trkIdx].compactLayout = not _configuration[trkIdx].compactLayout
                         _configuration[trkIdx].changed = true
@@ -766,7 +793,7 @@ local function ConfigurationWindow(configuration)
 
                     if imgui.TreeNodeEx("Non-Rares") then
                         local AdditionalW = {
-                            includeAtrributes = true,
+                            includeAttributes = true,
                             includeHit = true,
                             includeSpecial = true,
                         }
@@ -809,7 +836,7 @@ local function ConfigurationWindow(configuration)
 
                     if imgui.TreeNodeEx("Rares") then
                         local AdditionalW = {
-                            includeAtrributes = true,
+                            includeAttributes = true,
                             includeHit = true,
                             includeSpecial = true,
                         }
