@@ -16,8 +16,6 @@ This fork uses APIs not yet in the upstream Solybum plugin. Use **one** of these
 * **[Bennylavaa v0.3.7.1 prebuilt release](https://github.com/Bennylavaa/psobbaddonplugin/releases/tag/v0.3.7.1)** — easiest install, no compile needed
 * **[Solybum upstream + PR #27](https://github.com/Solybum/psobbaddonplugin/pull/27)** — if you want to apply the patch yourself
 
-You will also need SolyLib from here: https://github.com/Solybum/PSOBBMod-Addons
-
 _Ignore if you already have one of the above working._
 
 * [PSOBB Base Addon installation help](https://github.com/Solybum/psobbaddonplugin?tab=readme-ov-file#installation)
